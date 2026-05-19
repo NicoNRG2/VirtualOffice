@@ -5,10 +5,12 @@ public class WhiteboardMarker : MonoBehaviour
 {
     [SerializeField] private Transform _tip;
     [SerializeField] private int _penSize = 5;
+    // Sostituisce _tipHeight: distanza massima per considerare il contatto
+    [SerializeField] private float _drawDistance = 0.005f;
 
     private Renderer _renderer;
     private Color[] _colors;
-    private float _tipHeight;
+    
 
     private RaycastHit _touch;
     private Whiteboard _whiteboard;
@@ -21,7 +23,7 @@ public class WhiteboardMarker : MonoBehaviour
     {
         _renderer = _tip.GetComponent<Renderer>();
         _colors = Enumerable.Repeat(_renderer.material.color, _penSize * _penSize).ToArray();
-        _tipHeight = _tip.localPosition.y;        
+              
     }
 
     // Update is called once per frame
@@ -32,7 +34,8 @@ public class WhiteboardMarker : MonoBehaviour
 
     private void Draw()
     {
-        if (Physics.Raycast(_tip.position, transform.up, out _touch, _tipHeight))
+        Debug.DrawRay(_tip.position, _tip.up * 0.2f, Color.red);
+        if (Physics.Raycast(_tip.position, _tip.up, out _touch, _drawDistance ))
         {
             if (_touch.transform.CompareTag("Whiteboard"))
             {
