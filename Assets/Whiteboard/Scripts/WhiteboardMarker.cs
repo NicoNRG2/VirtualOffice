@@ -5,12 +5,10 @@ public class WhiteboardMarker : MonoBehaviour
 {
     [SerializeField] private Transform _tip;
     [SerializeField] private int _penSize = 5;
-    // Sostituisce _tipHeight: distanza massima per considerare il contatto
     [SerializeField] private float _drawDistance = 0.005f;
 
     private Renderer _renderer;
     private Color[] _colors;
-    
 
     private RaycastHit _touch;
     private Whiteboard _whiteboard;
@@ -18,31 +16,27 @@ public class WhiteboardMarker : MonoBehaviour
     private bool _touchedLastFrame;
     private Quaternion _lastTouchRot;
 
-    // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
         _renderer = _tip.GetComponent<Renderer>();
         _colors = Enumerable.Repeat(_renderer.material.color, _penSize * _penSize).ToArray();
-              
     }
 
-    // Update is called once per frame
     void Update()
     {
-        Draw();        
+        Draw();
     }
 
     private void Draw()
     {
         Debug.DrawRay(_tip.position, _tip.up * 0.2f, Color.red);
-        if (Physics.Raycast(_tip.position, _tip.up, out _touch, _drawDistance ))
+
+        if (Physics.Raycast(_tip.position, _tip.up, out _touch, _drawDistance))
         {
             if (_touch.transform.CompareTag("Whiteboard"))
             {
                 if (_whiteboard == null)
-                {
                     _whiteboard = _touch.transform.GetComponent<Whiteboard>();
-                }
 
                 _touchPos = new Vector2(_touch.textureCoord.x, _touch.textureCoord.y);
 
@@ -60,19 +54,18 @@ public class WhiteboardMarker : MonoBehaviour
                     {
                         var lerpX = (int)Mathf.Lerp(_lastTouchPos.x, x, f);
                         var lerpY = (int)Mathf.Lerp(_lastTouchPos.y, y, f);
-
                         _whiteboard.texture.SetPixels(lerpX, lerpY, _penSize, _penSize, _colors);
                     }
 
                     transform.rotation = _lastTouchRot;
 
                     _whiteboard.texture.Apply();
+                    _whiteboard.UpdateRenderTexture(); // ← UNICA AGGIUNTA
                 }
 
                 _lastTouchPos = new Vector2(x, y);
                 _lastTouchRot = transform.rotation;
                 _touchedLastFrame = true;
-
                 return;
             }
         }
@@ -80,5 +73,4 @@ public class WhiteboardMarker : MonoBehaviour
         _whiteboard = null;
         _touchedLastFrame = false;
     }
-    
 }
