@@ -5,10 +5,15 @@ EditorBuildSettings:
   m_ObjectHideFlags: 0
   serializedVersion: 2
   m_Scenes:
-  - enabled: 1
+  - enabled: 0
     path: Assets/Scenes/SampleScene.unity
     guid: 99c9720ab356a0642a771bea13969a05
+  - enabled: 1
+    path: Assets/Samples/Ubiq/1.0.0-pre.16/Demo (XRI)/Demo.unity
+    guid: 2de505d34345ab340bdde30d419b24eb
   m_configObjects:
     WebXR.Settings: {fileID: 11400000, guid: e9132f8edfaab9142b962c3764d14855, type: 2}
     com.unity.input.settings.actions: {fileID: -944628639613478452, guid: 052faaac586de48259a63d0c4782560b, type: 3}
+    com.unity.xr.management.loader_settings: {fileID: 11400000, guid: e2eb94a4e9a2e1b4dbef8dab784821fa, type: 2}
+    com.unity.xr.openxr.settings4: {fileID: 11400000, guid: 6c6e851557a18034596bb8b2374e129e, type: 2}
   m_UseUCBPForAssetBundles: 0
