@@ -18,8 +18,9 @@ public class Whiteboard : MonoBehaviour
     private struct WhiteboardMessage
     {
         public bool isClear;
-        public int x;
-        public int y;
+        public int x, y;
+        public int lastX, lastY;  // punto precedente per interpolazione remota
+        public bool hasLast;      // false al primo tocco (nessun punto precedente)
         public int penSize;
         public float r, g, b, a;
     }
@@ -56,14 +57,11 @@ public class Whiteboard : MonoBehaviour
     {
         if (_networkQueue.Count == 0) return;
 
-        bool didClear = false;
-
         foreach (var msg in _networkQueue)
         {
             if (msg.isClear)
             {
-                FillWhite(); // scrive pixel, Apply() dopo
-                didClear = true;
+                FillWhite();
                 continue;
             }
 
@@ -71,9 +69,23 @@ public class Whiteboard : MonoBehaviour
             var colors = new Color[msg.penSize * msg.penSize];
             for (int i = 0; i < colors.Length; i++) colors[i] = col;
 
+            // Punto corrente
             int cx = Mathf.Clamp(msg.x, 0, (int)textureSize.x - msg.penSize);
             int cy = Mathf.Clamp(msg.y, 0, (int)textureSize.y - msg.penSize);
             texture.SetPixels(cx, cy, msg.penSize, msg.penSize, colors);
+
+            // Interpolazione remota: ricostruisce il tratto continuo tra last e current
+            if (msg.hasLast)
+            {
+                for (float f = 0.01f; f < 1.00f; f += 0.01f)
+                {
+                    var lerpX = (int)Mathf.Lerp(msg.lastX, msg.x, f);
+                    var lerpY = (int)Mathf.Lerp(msg.lastY, msg.y, f);
+                    int clampedX = Mathf.Clamp(lerpX, 0, (int)textureSize.x - msg.penSize);
+                    int clampedY = Mathf.Clamp(lerpY, 0, (int)textureSize.y - msg.penSize);
+                    texture.SetPixels(clampedX, clampedY, msg.penSize, msg.penSize, colors);
+                }
+            }
         }
 
         _networkQueue.Clear();
@@ -87,16 +99,19 @@ public class Whiteboard : MonoBehaviour
     // -------------------------------------------------------
 
     /// <summary>
-    /// Invia una pennellata agli altri peer.
-    /// Il marker applica già localmente: qui mandiamo solo il messaggio.
+    /// Invia una pennellata agli altri peer, includendo il punto precedente
+    /// per permettere la ricostruzione dell'interpolazione remota.
     /// </summary>
-    public void SendDraw(int x, int y, int penSize, Color color)
+    public void SendDraw(int x, int y, int lastX, int lastY, bool hasLast, int penSize, Color color)
     {
         context.SendJson(new WhiteboardMessage
         {
             isClear = false,
-            x      = x,
-            y      = y,
+            x       = x,
+            y       = y,
+            lastX   = lastX,
+            lastY   = lastY,
+            hasLast = hasLast,
             penSize = penSize,
             r = color.r, g = color.g, b = color.b, a = color.a
         });

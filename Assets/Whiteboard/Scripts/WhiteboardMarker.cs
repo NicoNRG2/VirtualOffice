@@ -124,9 +124,25 @@ public class WhiteboardMarker : MonoBehaviour
                     _whiteboard.texture.Apply();
                     _whiteboard.UpdateRenderTexture();
 
-                    // --- Invia via rete il punto corrente ---
-                    // (inviamo il punto "canonico" x,y; l'interpolazione è locale)
-                    _whiteboard.SendDraw(x, y, _penSize, _renderer.material.color);
+                    // --- Invia coppia last→current per interpolazione remota ---
+                    _whiteboard.SendDraw(
+                        x, y,
+                        (int)_lastTouchPos.x, (int)_lastTouchPos.y,
+                        true,   // ha un punto precedente
+                        _penSize,
+                        _renderer.material.color
+                    );
+                }
+                else
+                {
+                    // Primo frame di tocco: nessun punto precedente
+                    _whiteboard.SendDraw(
+                        x, y,
+                        0, 0,
+                        false,  // nessun punto precedente
+                        _penSize,
+                        _renderer.material.color
+                    );
                 }
 
                 _lastTouchPos = new Vector2(x, y);
