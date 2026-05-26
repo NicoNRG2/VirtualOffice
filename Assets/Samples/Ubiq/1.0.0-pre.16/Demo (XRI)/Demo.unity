@@ -519,6 +519,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Virtual_Whiteboard_3
       objectReference: {fileID: 0}
+    - target: {fileID: 6328192121922358762, guid: 86d1bedc9c00ff444be010a193999d63, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -659,6 +663,10 @@ PrefabInstance:
     - target: {fileID: 4020322175654650145, guid: c3a01641cb7f0e14c8eccb83d8b8147a, type: 3}
       propertyPath: m_Name
       value: Virtual_Whiteboard_1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4020322175654650145, guid: c3a01641cb7f0e14c8eccb83d8b8147a, type: 3}
+      propertyPath: m_IsActive
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 9170147976031754588, guid: c3a01641cb7f0e14c8eccb83d8b8147a, type: 3}
       propertyPath: m_LocalPosition.x
@@ -853,6 +861,10 @@ PrefabInstance:
     - target: {fileID: 6328192121922358762, guid: 86d1bedc9c00ff444be010a193999d63, type: 3}
       propertyPath: m_Name
       value: Virtual_Whiteboard_3
+      objectReference: {fileID: 0}
+    - target: {fileID: 6328192121922358762, guid: 86d1bedc9c00ff444be010a193999d63, type: 3}
+      propertyPath: m_IsActive
+      value: 1
       objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
@@ -1101,6 +1113,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Virtual_Whiteboard_1
       objectReference: {fileID: 0}
+    - target: {fileID: 4020322175654650145, guid: c3a01641cb7f0e14c8eccb83d8b8147a, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 9170147976031754588, guid: c3a01641cb7f0e14c8eccb83d8b8147a, type: 3}
       propertyPath: m_LocalScale.x
       value: 0.050000023
@@ -1332,6 +1348,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Virtual_Whiteboard_4
       objectReference: {fileID: 0}
+    - target: {fileID: 1848065947266233367, guid: 2c2bec190c9a7b04b9d1a099f5574719, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 8382629070851845396, guid: 2c2bec190c9a7b04b9d1a099f5574719, type: 3}
       propertyPath: m_LocalScale.x
       value: 0.05000003
@@ -1442,6 +1462,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Virtual_Whiteboard_2
       objectReference: {fileID: 0}
+    - target: {fileID: 7266275096970609901, guid: 4f4cef1b8b611a34f9e9baa8284a3e94, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -1534,6 +1558,10 @@ PrefabInstance:
     - target: {fileID: 4020322175654650145, guid: c3a01641cb7f0e14c8eccb83d8b8147a, type: 3}
       propertyPath: m_Name
       value: Virtual_Whiteboard_1
+      objectReference: {fileID: 0}
+    - target: {fileID: 4020322175654650145, guid: c3a01641cb7f0e14c8eccb83d8b8147a, type: 3}
+      propertyPath: m_IsActive
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 9170147976031754588, guid: c3a01641cb7f0e14c8eccb83d8b8147a, type: 3}
       propertyPath: m_LocalPosition.x
@@ -1769,6 +1797,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Virtual_Whiteboard_2
       objectReference: {fileID: 0}
+    - target: {fileID: 7266275096970609901, guid: 4f4cef1b8b611a34f9e9baa8284a3e94, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -1790,6 +1822,10 @@ PrefabInstance:
     - target: {fileID: 1848065947266233367, guid: 2c2bec190c9a7b04b9d1a099f5574719, type: 3}
       propertyPath: m_Name
       value: Virtual_Whiteboard_4
+      objectReference: {fileID: 0}
+    - target: {fileID: 1848065947266233367, guid: 2c2bec190c9a7b04b9d1a099f5574719, type: 3}
+      propertyPath: m_IsActive
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8382629070851845396, guid: 2c2bec190c9a7b04b9d1a099f5574719, type: 3}
       propertyPath: m_LocalScale.x
@@ -1868,7 +1904,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1099329308
 Transform:
   m_ObjectHideFlags: 0
@@ -1969,6 +2005,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Virtual_Whiteboard_3
       objectReference: {fileID: 0}
+    - target: {fileID: 6328192121922358762, guid: 86d1bedc9c00ff444be010a193999d63, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -1994,7 +2034,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1169957031
 Transform:
   m_ObjectHideFlags: 0
@@ -2029,15 +2069,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 2.13
+      value: -0.99
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0.636
+      value: -0.07
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -0.21
+      value: 1.36
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalRotation.w
@@ -2166,15 +2206,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 2.13
+      value: 0.493
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0.636
+      value: 0.018
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -0.21
+      value: 0.307
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalRotation.w
@@ -2335,6 +2375,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Virtual_Whiteboard_4
       objectReference: {fileID: 0}
+    - target: {fileID: 1848065947266233367, guid: 2c2bec190c9a7b04b9d1a099f5574719, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 8382629070851845396, guid: 2c2bec190c9a7b04b9d1a099f5574719, type: 3}
       propertyPath: m_LocalPosition.x
       value: -0.153
@@ -2449,6 +2493,10 @@ PrefabInstance:
       propertyPath: m_Name
       value: Virtual_Whiteboard_2
       objectReference: {fileID: 0}
+    - target: {fileID: 7266275096970609901, guid: 4f4cef1b8b611a34f9e9baa8284a3e94, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
@@ -2487,15 +2535,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 2.13
+      value: -0.921
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0.636
+      value: 0.145
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -0.21
+      value: -1.706
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalRotation.w
@@ -2900,7 +2948,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &2097477174
 Transform:
   m_ObjectHideFlags: 0
@@ -3089,6 +3137,7 @@ MonoBehaviour:
   - {fileID: 2097477173}
   - {fileID: 1169957030}
   - {fileID: 1099329307}
+  debugLocalPlayerNumber: 1
 --- !u!1 &2026700329441825
 GameObject:
   m_ObjectHideFlags: 0
@@ -3306,7 +3355,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 0.636
+      value: 0.947
       objectReference: {fileID: 0}
     - target: {fileID: 6476479363638646756, guid: 715c578ac11f2c24a869bee7305caeb2, type: 3}
       propertyPath: m_LocalPosition.z
