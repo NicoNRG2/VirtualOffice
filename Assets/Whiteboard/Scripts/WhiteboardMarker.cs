@@ -12,7 +12,7 @@ public class WhiteboardMarker : MonoBehaviour
     // Networking
     // -------------------------------------------------------
     private NetworkContext context;
-    private bool _isOwner = false;   // true solo per il giocatore locale
+    private bool _isOwner = false;
 
     private struct MarkerMessage
     {
@@ -24,6 +24,7 @@ public class WhiteboardMarker : MonoBehaviour
     // Drawing
     // -------------------------------------------------------
     private Renderer _renderer;
+    private Color _currentColor;
     private Color[] _colors;
 
     private RaycastHit _touch;
@@ -38,8 +39,9 @@ public class WhiteboardMarker : MonoBehaviour
 
     void Start()
     {
-        _renderer = _tip.GetComponent<Renderer>();
-        _colors   = Enumerable.Repeat(_renderer.material.color, _penSize * _penSize).ToArray();
+        _renderer     = _tip.GetComponent<Renderer>();
+        _currentColor = _renderer.material.color;
+        RebuildColorArray();
 
         context = NetworkScene.Register(this);
     }
@@ -50,7 +52,6 @@ public class WhiteboardMarker : MonoBehaviour
         {
             Draw();
 
-            // Invia posizione/rotazione del marker agli altri peer ogni frame
             context.SendJson(new MarkerMessage
             {
                 position = transform.position,
@@ -60,9 +61,7 @@ public class WhiteboardMarker : MonoBehaviour
     }
 
     // -------------------------------------------------------
-    // Chiamate dall'esterno per assegnare/revocare la proprietà
-    // (collega questi metodi agli eventi XRGrabInteractable nel tuo Pen controller,
-    //  oppure chiama SetOwner(true/false) dove gestisci il grab)
+    // API pubblica
     // -------------------------------------------------------
 
     public void SetOwner(bool owner)
@@ -70,18 +69,33 @@ public class WhiteboardMarker : MonoBehaviour
         _isOwner = owner;
     }
 
+    /// <summary>
+    /// Imposta il colore corrente della penna.
+    /// Chiamato da ColorPickerUI.
+    /// </summary>
+    public void SetColor(Color color)
+    {
+        _currentColor = color;
+        _renderer.material.color = color;
+        RebuildColorArray();
+    }
+
+    /// <summary>
+    /// Restituisce il colore corrente (utile per inizializzare la UI).
+    /// </summary>
+    public Color GetColor() => _currentColor;
+
     // -------------------------------------------------------
-    // Ricezione messaggi dalla rete (peer remoti)
+    // Ricezione messaggi dalla rete
     // -------------------------------------------------------
 
     public void ProcessMessage(ReferenceCountedSceneGraphMessage message)
     {
-        if (_isOwner) return; // ignora se siamo già owner
+        if (_isOwner) return;
 
         var data = message.FromJson<MarkerMessage>();
         transform.position = data.position;
         transform.rotation = data.rotation;
-        // Il disegno remoto è gestito da Whiteboard.ProcessMessage
     }
 
     // -------------------------------------------------------
@@ -110,7 +124,6 @@ public class WhiteboardMarker : MonoBehaviour
 
                 if (_touchedLastFrame)
                 {
-                    // --- Applica localmente ---
                     _whiteboard.texture.SetPixels(x, y, _penSize, _penSize, _colors);
 
                     for (float f = 0.01f; f < 1.00f; f += 0.01f)
@@ -124,35 +137,32 @@ public class WhiteboardMarker : MonoBehaviour
                     _whiteboard.texture.Apply();
                     _whiteboard.UpdateRenderTexture();
 
-                    // --- Invia coppia last→current per interpolazione remota ---
                     _whiteboard.SendDraw(
                         x, y,
                         (int)_lastTouchPos.x, (int)_lastTouchPos.y,
-                        true,   // ha un punto precedente
+                        true,
                         _penSize,
-                        _renderer.material.color
+                        _currentColor
                     );
                 }
                 else
                 {
-                    // Primo frame di tocco: nessun punto precedente
-                    _whiteboard.SendDraw(
-                        x, y,
-                        0, 0,
-                        false,  // nessun punto precedente
-                        _penSize,
-                        _renderer.material.color
-                    );
+                    _whiteboard.SendDraw(x, y, 0, 0, false, _penSize, _currentColor);
                 }
 
-                _lastTouchPos = new Vector2(x, y);
-                _lastTouchRot = transform.rotation;
+                _lastTouchPos     = new Vector2(x, y);
+                _lastTouchRot     = transform.rotation;
                 _touchedLastFrame = true;
                 return;
             }
         }
 
-        _whiteboard = null;
+        _whiteboard       = null;
         _touchedLastFrame = false;
+    }
+
+    private void RebuildColorArray()
+    {
+        _colors = Enumerable.Repeat(_currentColor, _penSize * _penSize).ToArray();
     }
 }
