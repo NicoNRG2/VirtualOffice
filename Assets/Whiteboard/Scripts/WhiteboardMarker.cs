@@ -1,7 +1,9 @@
 using UnityEngine;
 using System.Linq;
 using Ubiq.Messaging;
+using UnityEngine.XR.Interaction.Toolkit;
 
+[RequireComponent(typeof(UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable))]
 public class WhiteboardMarker : MonoBehaviour
 {
     [SerializeField] private Transform _tip;
@@ -37,6 +39,13 @@ public class WhiteboardMarker : MonoBehaviour
     // Unity lifecycle
     // -------------------------------------------------------
 
+    void Awake()
+    {
+        var grab = GetComponent<UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable>();
+        grab.selectEntered.AddListener(OnGrab);
+        grab.selectExited.AddListener(OnRelease);
+    }
+
     void Start()
     {
         _renderer     = _tip.GetComponent<Renderer>();
@@ -44,6 +53,14 @@ public class WhiteboardMarker : MonoBehaviour
         RebuildColorArray();
 
         context = NetworkScene.Register(this);
+    }
+
+    void OnDestroy()
+    {
+        var grab = GetComponent<UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable>();
+        if (grab == null) return;
+        grab.selectEntered.RemoveListener(OnGrab);
+        grab.selectExited.RemoveListener(OnRelease);
     }
 
     void Update()
@@ -61,6 +78,22 @@ public class WhiteboardMarker : MonoBehaviour
     }
 
     // -------------------------------------------------------
+    // Grab events
+    // -------------------------------------------------------
+
+    private void OnGrab(SelectEnterEventArgs args)
+    {
+        SetOwner(true);
+        ColorPickerUI.Instance?.RegisterMarker(this);
+    }
+
+    private void OnRelease(SelectExitEventArgs args)
+    {
+        SetOwner(false);
+        ColorPickerUI.Instance?.UnregisterMarker();
+    }
+
+    // -------------------------------------------------------
     // API pubblica
     // -------------------------------------------------------
 
@@ -69,10 +102,6 @@ public class WhiteboardMarker : MonoBehaviour
         _isOwner = owner;
     }
 
-    /// <summary>
-    /// Imposta il colore corrente della penna.
-    /// Chiamato da ColorPickerUI.
-    /// </summary>
     public void SetColor(Color color)
     {
         _currentColor = color;
@@ -80,9 +109,6 @@ public class WhiteboardMarker : MonoBehaviour
         RebuildColorArray();
     }
 
-    /// <summary>
-    /// Restituisce il colore corrente (utile per inizializzare la UI).
-    /// </summary>
     public Color GetColor() => _currentColor;
 
     // -------------------------------------------------------
