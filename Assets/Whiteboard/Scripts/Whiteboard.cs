@@ -174,7 +174,10 @@ public class Whiteboard : MonoBehaviour
 
         // Aspetta un frame prima di inviare, per dare tempo a Ubiq di
         // finalizzare il join del nuovo peer.
-        StartCoroutine(SendSnapshotAfterDelay(0.5f));
+        if (gameObject.activeInHierarchy && enabled)
+        {
+            StartCoroutine(SendSnapshotAfterDelay(0.5f));
+        }
     }
 
     /// <summary>
@@ -183,7 +186,9 @@ public class Whiteboard : MonoBehaviour
     /// </summary>
     private void OnJoinedRoom(IRoom room)
     {
-        // Piccolo delay per attendere che gli altri peer siano pronti
+        if (!gameObject.activeInHierarchy || !enabled)
+            return;
+
         StartCoroutine(RequestSnapshotAfterDelay(1.0f));
     }
 
@@ -250,7 +255,10 @@ public class Whiteboard : MonoBehaviour
             {
                 if (Time.time - _lastSnapshotSentTime < SNAPSHOT_COOLDOWN) return;
                 _lastSnapshotSentTime = Time.time;
-                StartCoroutine(SendSnapshotAfterDelay(0.1f));
+                if (gameObject.activeInHierarchy && enabled)
+                {
+                    StartCoroutine(SendSnapshotAfterDelay(0.1f));
+                }
             }
             return;
         }
