@@ -11,12 +11,15 @@ public class WorkstationManager : MonoBehaviour
     [Header("Workstations (index 0 = Workstation1, index 3 = Workstation4)")]
     [SerializeField] private GameObject[] workstations = new GameObject[4];
 
-    // Chiave Room Property: "uuid1,uuid2,uuid3,uuid4" (posizione = workstation - 1)
     private const string SLOT_KEY = "wm_slots";
 
     private RoomClient roomClient;
-    private int lastActiveCount   = -1;
-    private int localPlayerNumber =  0; // 0 = non ancora assegnato
+
+    // Cache per l'early-return: refresh scatta se UNO dei due cambia
+    private int lastActiveCount      = -1;
+    private int lastLocalPlayerNumber = -1; // -1 = mai applicato alla UI
+
+    private int localPlayerNumber = 0; // 0 = non ancora assegnato
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -63,7 +66,6 @@ public class WorkstationManager : MonoBehaviour
 
     private void OnPeerRemoved(IPeer peer)
     {
-        // FIX: rimuovi lo slot del peer disconnesso, così è riutilizzabile
         ReleaseSlot(peer.uuid);
         RefreshVisibility();
     }
@@ -75,7 +77,7 @@ public class WorkstationManager : MonoBehaviour
     }
 
     // -------------------------------------------------------------------------
-    // Slot assignment (Room Properties)
+    // Slot assignment
     // -------------------------------------------------------------------------
 
     private void ClaimSlot()
@@ -91,7 +93,7 @@ public class WorkstationManager : MonoBehaviour
             if (slots[i] == myUuid) { localPlayerNumber = i + 1; return; }
         }
 
-        // FIX: pulizia slot zombie (UUID non più presenti come peer né come Me)
+        // Pulizia slot zombie
         var activePeerUuids = roomClient.Peers.Select(p => p.uuid).ToHashSet();
         activePeerUuids.Add(myUuid);
 
@@ -113,7 +115,8 @@ public class WorkstationManager : MonoBehaviour
                 localPlayerNumber = i + 1;
                 roomClient.Room[SLOT_KEY] = string.Join(",", slots);
                 Debug.Log($"[WorkstationManager] Slot assegnato: Player {localPlayerNumber}");
-                ForceRefreshAfterSlotAssign();
+                // Forza il refresh: localPlayerNumber è cambiato, la cache va invalidata
+                lastLocalPlayerNumber = -1;
                 return;
             }
         }
@@ -121,10 +124,6 @@ public class WorkstationManager : MonoBehaviour
         Debug.LogWarning("[WorkstationManager] Nessuno slot libero!");
     }
 
-    /// <summary>
-    /// Rimuove l'UUID specificato dagli slot e scrive la Room Property aggiornata.
-    /// Chiamato quando un peer si disconnette.
-    /// </summary>
     private void ReleaseSlot(string uuid)
     {
         if (roomClient?.Room == null || string.IsNullOrEmpty(uuid)) return;
@@ -154,7 +153,15 @@ public class WorkstationManager : MonoBehaviour
 
         for (int i = 0; i < 4; i++)
         {
-            if (slots[i] == myUuid) { localPlayerNumber = i + 1; return; }
+            if (slots[i] == myUuid)
+            {
+                if (localPlayerNumber != i + 1)
+                {
+                    localPlayerNumber = i + 1;
+                    lastLocalPlayerNumber = -1; // slot cambiato: forza refresh
+                }
+                return;
+            }
         }
 
         ClaimSlot();
@@ -179,13 +186,16 @@ public class WorkstationManager : MonoBehaviour
 
         int activeCount = Mathf.Clamp(roomClient.Peers.Count() + 1, 1, 4);
 
-        // FIX: non fare early-return se localPlayerNumber è ancora 0,
-        // perché dobbiamo aggiornare i VW appena lo slot viene assegnato.
-        // Confronta sia activeCount che localPlayerNumber per evitare refresh inutili.
-        if (activeCount == lastActiveCount && localPlayerNumber != 0) return;
-        lastActiveCount = activeCount;
+        // FIX v3: early-return solo se ENTRAMBI i valori sono invariati.
+        // Se localPlayerNumber è cambiato (es. slot appena assegnato al secondo peer)
+        // il refresh deve avvenire anche se activeCount non è cambiato.
+        if (activeCount == lastActiveCount && localPlayerNumber == lastLocalPlayerNumber)
+            return;
 
-        Debug.Log($"[WorkstationManager] Utenti: {activeCount} | LocalPlayer: {localPlayerNumber}");
+        lastActiveCount       = activeCount;
+        lastLocalPlayerNumber = localPlayerNumber;
+
+        Debug.Log($"[WorkstationManager] Refresh → Utenti: {activeCount} | LocalPlayer: {localPlayerNumber}");
 
         for (int i = 0; i < workstations.Length; i++)
         {
@@ -205,10 +215,6 @@ public class WorkstationManager : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Mostra i Virtual_Whiteboard solo se questa è la workstation del
-    /// giocatore locale; nelle altre le nasconde tutte.
-    /// </summary>
     private void UpdateVirtualWhiteboards(GameObject workstation,
                                           int ownWorkstationNumber,
                                           int activeCount)
@@ -249,20 +255,6 @@ public class WorkstationManager : MonoBehaviour
     }
 
     // -------------------------------------------------------------------------
-    // FIX: forza refresh dei VW dopo che lo slot viene assegnato
-    // -------------------------------------------------------------------------
-
-    /// <summary>
-    /// Chiamato da ClaimSlot dopo aver assegnato localPlayerNumber > 0.
-    /// Forza un RefreshVisibility completo anche se activeCount non è cambiato.
-    /// </summary>
-    private void ForceRefreshAfterSlotAssign()
-    {
-        lastActiveCount = -1; // invalida la cache per forzare il refresh completo
-        RefreshVisibility();
-    }
-
-    // -------------------------------------------------------------------------
     // Editor utility (solo Play Mode)
     // -------------------------------------------------------------------------
 
@@ -277,8 +269,9 @@ public class WorkstationManager : MonoBehaviour
 
     private void SimulateCount(int count)
     {
-        lastActiveCount   = -1;
-        localPlayerNumber = Mathf.Clamp(debugLocalPlayerNumber, 1, 4);
+        lastActiveCount       = -1;
+        lastLocalPlayerNumber = -1;
+        localPlayerNumber     = Mathf.Clamp(debugLocalPlayerNumber, 1, 4);
         int clamped = Mathf.Clamp(count, 1, 4);
         Debug.Log($"[WorkstationManager] SIMULAZIONE: {clamped} utenti | LocalPlayer={localPlayerNumber}");
 
