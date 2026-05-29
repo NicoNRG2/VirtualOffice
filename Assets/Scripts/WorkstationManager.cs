@@ -5,17 +5,6 @@ using Ubiq.Rooms;
 /// <summary>
 /// Attiva/disattiva le Workstation e i Virtual_Whiteboard in base
 /// al numero di utenti connessi alla stanza Ubiq (1-4).
-///
-/// Regola visibilità Virtual_Whiteboard:
-///   - Il giocatore locale vede i Virtual_Whiteboard SOLO nella propria
-///     workstation (quelli delle altre postazioni vengono sempre nascosti).
-///   - Vengono mostrati solo i VW delle postazioni effettivamente attive.
-///
-/// Setup nel Inspector:
-///   - Assegna i 4 GameObject Workstation1..4 all'array "workstations"
-///     nell'ordine 0=Workstation1, 1=Workstation2, ecc.
-///   - Assicurati che ogni Workstation contenga i GameObjects
-///     Virtual_Whiteboard_1..4 (eccetto il proprio numero).
 /// </summary>
 public class WorkstationManager : MonoBehaviour
 {
@@ -26,7 +15,7 @@ public class WorkstationManager : MonoBehaviour
     private const string SLOT_KEY = "wm_slots";
 
     private RoomClient roomClient;
-    private int lastActiveCount   = -1; // -1 forza il refresh iniziale
+    private int lastActiveCount   = -1;
     private int localPlayerNumber =  0; // 0 = non ancora assegnato
 
     // -------------------------------------------------------------------------
@@ -39,8 +28,7 @@ public class WorkstationManager : MonoBehaviour
 
         if (roomClient == null)
         {
-            Debug.LogError("[WorkstationManager] RoomClient non trovato! " +
-                           "Assicurati che questo GameObject sia figlio del NetworkScene.");
+            Debug.LogError("[WorkstationManager] RoomClient non trovato!");
             return;
         }
 
@@ -65,10 +53,26 @@ public class WorkstationManager : MonoBehaviour
     // Ubiq callbacks
     // -------------------------------------------------------------------------
 
-    private void OnJoinedRoom(IRoom room) { ClaimSlot(); RefreshVisibility(); }
-    private void OnPeerAdded(IPeer peer)  => RefreshVisibility();
-    private void OnPeerRemoved(IPeer peer)=> RefreshVisibility();
-    private void OnRoomUpdated(IRoom room){ ReadMySlot(); RefreshVisibility(); }
+    private void OnJoinedRoom(IRoom room)
+    {
+        ClaimSlot();
+        RefreshVisibility();
+    }
+
+    private void OnPeerAdded(IPeer peer) => RefreshVisibility();
+
+    private void OnPeerRemoved(IPeer peer)
+    {
+        // FIX: rimuovi lo slot del peer disconnesso, così è riutilizzabile
+        ReleaseSlot(peer.uuid);
+        RefreshVisibility();
+    }
+
+    private void OnRoomUpdated(IRoom room)
+    {
+        ReadMySlot();
+        RefreshVisibility();
+    }
 
     // -------------------------------------------------------------------------
     // Slot assignment (Room Properties)
@@ -76,7 +80,7 @@ public class WorkstationManager : MonoBehaviour
 
     private void ClaimSlot()
     {
-        if (roomClient.Room == null) return;
+        if (roomClient?.Room == null) return;
 
         string myUuid = roomClient.Me.uuid;
         string[] slots = ParseSlots(roomClient.Room[SLOT_KEY]);
@@ -85,6 +89,19 @@ public class WorkstationManager : MonoBehaviour
         for (int i = 0; i < 4; i++)
         {
             if (slots[i] == myUuid) { localPlayerNumber = i + 1; return; }
+        }
+
+        // FIX: pulizia slot zombie (UUID non più presenti come peer né come Me)
+        var activePeerUuids = roomClient.Peers.Select(p => p.uuid).ToHashSet();
+        activePeerUuids.Add(myUuid);
+
+        for (int i = 0; i < 4; i++)
+        {
+            if (!string.IsNullOrEmpty(slots[i]) && !activePeerUuids.Contains(slots[i]))
+            {
+                Debug.Log($"[WorkstationManager] Slot {i + 1} zombie rimosso (UUID: {slots[i]})");
+                slots[i] = "";
+            }
         }
 
         // Primo slot libero
@@ -96,11 +113,37 @@ public class WorkstationManager : MonoBehaviour
                 localPlayerNumber = i + 1;
                 roomClient.Room[SLOT_KEY] = string.Join(",", slots);
                 Debug.Log($"[WorkstationManager] Slot assegnato: Player {localPlayerNumber}");
+                ForceRefreshAfterSlotAssign();
                 return;
             }
         }
 
         Debug.LogWarning("[WorkstationManager] Nessuno slot libero!");
+    }
+
+    /// <summary>
+    /// Rimuove l'UUID specificato dagli slot e scrive la Room Property aggiornata.
+    /// Chiamato quando un peer si disconnette.
+    /// </summary>
+    private void ReleaseSlot(string uuid)
+    {
+        if (roomClient?.Room == null || string.IsNullOrEmpty(uuid)) return;
+
+        string[] slots = ParseSlots(roomClient.Room[SLOT_KEY]);
+        bool changed = false;
+
+        for (int i = 0; i < 4; i++)
+        {
+            if (slots[i] == uuid)
+            {
+                slots[i] = "";
+                changed = true;
+                Debug.Log($"[WorkstationManager] Slot {i + 1} rilasciato (UUID: {uuid})");
+            }
+        }
+
+        if (changed)
+            roomClient.Room[SLOT_KEY] = string.Join(",", slots);
     }
 
     private void ReadMySlot()
@@ -114,7 +157,7 @@ public class WorkstationManager : MonoBehaviour
             if (slots[i] == myUuid) { localPlayerNumber = i + 1; return; }
         }
 
-        ClaimSlot(); // non ancora registrato
+        ClaimSlot();
     }
 
     private static string[] ParseSlots(string raw)
@@ -136,6 +179,9 @@ public class WorkstationManager : MonoBehaviour
 
         int activeCount = Mathf.Clamp(roomClient.Peers.Count() + 1, 1, 4);
 
+        // FIX: non fare early-return se localPlayerNumber è ancora 0,
+        // perché dobbiamo aggiornare i VW appena lo slot viene assegnato.
+        // Confronta sia activeCount che localPlayerNumber per evitare refresh inutili.
         if (activeCount == lastActiveCount && localPlayerNumber != 0) return;
         lastActiveCount = activeCount;
 
@@ -162,19 +208,17 @@ public class WorkstationManager : MonoBehaviour
     /// <summary>
     /// Mostra i Virtual_Whiteboard solo se questa è la workstation del
     /// giocatore locale; nelle altre le nasconde tutte.
-    /// Applica anche la regola base: non mostrare VW di postazioni inattive.
     /// </summary>
     private void UpdateVirtualWhiteboards(GameObject workstation,
                                           int ownWorkstationNumber,
                                           int activeCount)
     {
-        // È la postazione del giocatore locale?
         bool isMyWorkstation = (localPlayerNumber != 0 &&
                                 ownWorkstationNumber == localPlayerNumber);
 
         for (int j = 1; j <= 4; j++)
         {
-            if (j == ownWorkstationNumber) continue; // non esiste per design
+            if (j == ownWorkstationNumber) continue;
 
             string    vwName      = $"Virtual_Whiteboard_{j}";
             Transform vwTransform = workstation.transform.Find(vwName)
@@ -188,7 +232,6 @@ public class WorkstationManager : MonoBehaviour
                 continue;
             }
 
-            // Visibile solo se: sono nella mia postazione E la postazione j è attiva
             bool show = isMyWorkstation && j <= activeCount;
             vwTransform.gameObject.SetActive(show);
         }
@@ -203,6 +246,20 @@ public class WorkstationManager : MonoBehaviour
             if (found != null) return found;
         }
         return null;
+    }
+
+    // -------------------------------------------------------------------------
+    // FIX: forza refresh dei VW dopo che lo slot viene assegnato
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Chiamato da ClaimSlot dopo aver assegnato localPlayerNumber > 0.
+    /// Forza un RefreshVisibility completo anche se activeCount non è cambiato.
+    /// </summary>
+    private void ForceRefreshAfterSlotAssign()
+    {
+        lastActiveCount = -1; // invalida la cache per forzare il refresh completo
+        RefreshVisibility();
     }
 
     // -------------------------------------------------------------------------
