@@ -48,6 +48,12 @@ public class WhiteboardMarker : MonoBehaviour
 
     void Start()
     {
+        if (_tip == null)
+        {
+            Debug.LogError("[WhiteboardMarker] _tip non assegnato nell'Inspector!");
+            return;
+        }
+
         _renderer     = _tip.GetComponent<Renderer>();
         _currentColor = _renderer.material.color;
         RebuildColorArray();
@@ -65,16 +71,16 @@ public class WhiteboardMarker : MonoBehaviour
 
     void Update()
     {
-        if (_isOwner)
-        {
-            Draw();
+        // FIX: invia la posizione in rete solo se siamo owner
+        if (!_isOwner) return;
 
-            context.SendJson(new MarkerMessage
-            {
-                position = transform.position,
-                rotation = transform.rotation
-            });
-        }
+        Draw();
+
+        context.SendJson(new MarkerMessage
+        {
+            position = transform.position,
+            rotation = transform.rotation
+        });
     }
 
     // -------------------------------------------------------
@@ -90,6 +96,8 @@ public class WhiteboardMarker : MonoBehaviour
     private void OnRelease(SelectExitEventArgs args)
     {
         SetOwner(false);
+        _touchedLastFrame = false; // FIX: resetta stato pennello al rilascio
+        _whiteboard       = null;
         ColorPickerUI.Instance?.UnregisterMarker();
     }
 
@@ -130,6 +138,8 @@ public class WhiteboardMarker : MonoBehaviour
 
     private void Draw()
     {
+        if (_tip == null) return;
+
         Debug.DrawRay(_tip.position, _tip.up * 0.2f, Color.red);
 
         if (Physics.Raycast(_tip.position, _tip.up, out _touch, _drawDistance))

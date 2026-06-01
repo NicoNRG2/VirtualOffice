@@ -5,6 +5,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System;
 
+/// <summary>
+/// Whiteboard con sincronizzazione snapshot corretta.
+/// </summary>
 public class Whiteboard : MonoBehaviour
 {
     public Texture2D texture;
@@ -14,13 +17,12 @@ public class Whiteboard : MonoBehaviour
     public RenderTexture mirrorRenderTexture;
 
     // -------------------------------------------------------
-    // Messaggi di rete
+    // Tipi di messaggio
+    // Tipo 0 (WhiteboardMessage, isClear=false): pennellata
+    // Tipo 1 (WhiteboardMessage, isClear=true):  reset lavagna
+    // Tipo 2 (SnapshotChunkMessage):             chunk snapshot
+    // Tipo 3 (SnapshotRequestMessage):           richiesta snapshot
     // -------------------------------------------------------
-
-    // Tipo 0: pennellata normale
-    // Tipo 1: reset lavagna
-    // Tipo 2: chunk di snapshot (sincronizzazione nuovo peer)
-    // Tipo 3: richiesta snapshot da parte di un nuovo peer
 
     private struct WhiteboardMessage
     {
@@ -34,14 +36,14 @@ public class Whiteboard : MonoBehaviour
 
     private struct SnapshotRequestMessage
     {
-        public bool isRequest; // sempre true, serve solo per distinguere il tipo
+        public bool isRequest;
     }
 
     private struct SnapshotChunkMessage
     {
         public int chunkIndex;
         public int totalChunks;
-        public string base64Data; // porzione dei byte JPG codificata in Base64
+        public string base64Data;
     }
 
     // -------------------------------------------------------
@@ -52,19 +54,19 @@ public class Whiteboard : MonoBehaviour
     private Renderer _renderer;
     private RoomClient _roomClient;
 
-    // Coda pennellate remote
     private List<WhiteboardMessage> _networkQueue = new List<WhiteboardMessage>();
 
     // Ricostruzione snapshot in ingresso
     private string[] _incomingChunks;
-    private int      _incomingTotal   = 0;
+    private int      _incomingTotal    = 0;
     private int      _incomingReceived = 0;
 
-    // Throttle invio snapshot: evita di inviare più snapshot in rapida successione
-    private float _lastSnapshotSentTime = -999f;
-    private const float SNAPSHOT_COOLDOWN = 2f; // secondi
+    // FIX: cooldown separati per invio e risposta a richiesta
+    private float _lastSnapshotSentTime    = -999f;
+    private float _lastSnapshotRequestTime = -999f;
+    private const float SNAPSHOT_SEND_COOLDOWN    = 2f;
+    private const float SNAPSHOT_REQUEST_COOLDOWN = 5f;
 
-    // Dimensione massima sicura per chunk Base64 in un messaggio Ubiq (~32 KB)
     private const int CHUNK_BYTES = 24000;
 
     // -------------------------------------------------------
@@ -88,7 +90,6 @@ public class Whiteboard : MonoBehaviour
 
         context = NetworkScene.Register(this);
 
-        // Cerca il RoomClient per intercettare OnPeerAdded
         _roomClient = RoomClient.Find(this);
         if (_roomClient != null)
         {
@@ -97,8 +98,7 @@ public class Whiteboard : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning("[Whiteboard] RoomClient non trovato: la sincronizzazione " +
-                             "snapshot non funzionerà.");
+            Debug.LogWarning("[Whiteboard] RoomClient non trovato.");
         }
     }
 
@@ -148,21 +148,25 @@ public class Whiteboard : MonoBehaviour
     // -------------------------------------------------------
 
     /// <summary>
-    /// Chiamato su tutti i peer quando un nuovo peer entra.
-    /// Il peer con UUID più basso fa da "master" e invia lo snapshot.
+    /// Chiamato su TUTTI i peer esistenti quando un nuovo peer entra.
+    /// Solo il "master" (UUID lessicograficamente minore TRA TUTTI, incluso Me)
+    /// invia lo snapshot.
     /// </summary>
     private void OnPeerAdded(IPeer newPeer)
     {
         if (_roomClient == null) return;
+        if (!gameObject.activeInHierarchy || !enabled) return;
 
-        // Determina se questo peer è il "master" (UUID lessicograficamente minore
-        // tra tutti i peer presenti, incluso se stesso).
-        string myUuid = _roomClient.Me.uuid;
+        // FIX: includo Me nel confronto degli UUID
+        string myUuid   = _roomClient.Me.uuid;
+        bool   iAmMaster = true;
 
-        bool iAmMaster = true;
         foreach (var peer in _roomClient.Peers)
         {
-            // Se almeno un peer remoto ha UUID minore del mio, non sono il master
+            // Il nuovo peer appena entrato non è ancora un buon "master":
+            // non ha lo stato della lavagna, saltalo nel confronto.
+            if (peer.uuid == newPeer.uuid) continue;
+
             if (string.Compare(peer.uuid, myUuid, StringComparison.Ordinal) < 0)
             {
                 iAmMaster = false;
@@ -172,22 +176,27 @@ public class Whiteboard : MonoBehaviour
 
         if (!iAmMaster) return;
 
-        // Aspetta un frame prima di inviare, per dare tempo a Ubiq di
-        // finalizzare il join del nuovo peer.
-        if (gameObject.activeInHierarchy && enabled)
+        // FIX: non inviare snapshot se la lavagna è bianca (evita sovrascritture)
+        if (IsTextureBlank())
         {
-            StartCoroutine(SendSnapshotAfterDelay(0.5f));
+            Debug.Log("[Whiteboard] Sono master ma la lavagna è bianca: snapshot non inviato.");
+            return;
         }
+
+        StartCoroutine(SendSnapshotAfterDelay(0.5f));
     }
 
     /// <summary>
-    /// Chiamato sul peer appena entrato: richiede lo snapshot agli altri.
-    /// Meccanismo di backup nel caso OnPeerAdded non sia sufficiente.
+    /// FIX: il nuovo peer NON invia snapshot (non ha contenuto).
+    /// Si limita a richiedere lo stato agli altri peer.
     /// </summary>
     private void OnJoinedRoom(IRoom room)
     {
-        if (!gameObject.activeInHierarchy || !enabled)
-            return;
+        if (!gameObject.activeInHierarchy || !enabled) return;
+
+        // Richiedi lo snapshot agli altri solo se non l'abbiamo già richiesto di recente
+        if (Time.time - _lastSnapshotRequestTime < SNAPSHOT_REQUEST_COOLDOWN) return;
+        _lastSnapshotRequestTime = Time.time;
 
         StartCoroutine(RequestSnapshotAfterDelay(1.0f));
     }
@@ -196,8 +205,7 @@ public class Whiteboard : MonoBehaviour
     {
         yield return new WaitForSeconds(delay);
 
-        // Cooldown: evita burst di snapshot
-        if (Time.time - _lastSnapshotSentTime < SNAPSHOT_COOLDOWN) yield break;
+        if (Time.time - _lastSnapshotSentTime < SNAPSHOT_SEND_COOLDOWN) yield break;
         _lastSnapshotSentTime = Time.time;
 
         SendSnapshot();
@@ -242,28 +250,32 @@ public class Whiteboard : MonoBehaviour
 
     public void ProcessMessage(ReferenceCountedSceneGraphMessage message)
     {
-        // Ubiq invia messaggi come JSON generico; proviamo a deserializzare
-        // nel tipo corretto in base ai campi presenti.
-
         var raw = message.ToString();
 
-        // Tentativo 1: SnapshotRequestMessage
+        // SnapshotRequestMessage
         if (raw.Contains("\"isRequest\""))
         {
             var req = message.FromJson<SnapshotRequestMessage>();
             if (req.isRequest)
             {
-                if (Time.time - _lastSnapshotSentTime < SNAPSHOT_COOLDOWN) return;
+                // FIX: cooldown separato per rispondere alle richieste
+                if (Time.time - _lastSnapshotSentTime < SNAPSHOT_SEND_COOLDOWN) return;
+
+                // FIX: non rispondere se la lavagna è bianca
+                if (IsTextureBlank())
+                {
+                    Debug.Log("[Whiteboard] Ricevuta richiesta snapshot ma lavagna bianca: ignorata.");
+                    return;
+                }
+
                 _lastSnapshotSentTime = Time.time;
                 if (gameObject.activeInHierarchy && enabled)
-                {
                     StartCoroutine(SendSnapshotAfterDelay(0.1f));
-                }
             }
             return;
         }
 
-        // Tentativo 2: SnapshotChunkMessage
+        // SnapshotChunkMessage
         if (raw.Contains("\"chunkIndex\""))
         {
             var chunk = message.FromJson<SnapshotChunkMessage>();
@@ -271,7 +283,7 @@ public class Whiteboard : MonoBehaviour
             return;
         }
 
-        // Tentativo 3: WhiteboardMessage (pennellata o clear)
+        // WhiteboardMessage (pennellata o clear)
         var msg = message.FromJson<WhiteboardMessage>();
         _networkQueue.Add(msg);
     }
@@ -282,14 +294,12 @@ public class Whiteboard : MonoBehaviour
 
     private void SendSnapshot()
     {
-        // Codifica la texture come JPG (qualità 85 — buon compromesso dimensione/fedeltà)
         byte[] jpgBytes = texture.EncodeToJPG(85);
         string base64   = Convert.ToBase64String(jpgBytes);
 
         int totalChunks = Mathf.CeilToInt((float)base64.Length / CHUNK_BYTES);
 
-        Debug.Log($"[Whiteboard] Invio snapshot: {jpgBytes.Length / 1024} KB " +
-                  $"→ {totalChunks} chunk/s");
+        Debug.Log($"[Whiteboard] Invio snapshot: {jpgBytes.Length / 1024} KB → {totalChunks} chunk/s");
 
         for (int i = 0; i < totalChunks; i++)
         {
@@ -311,7 +321,6 @@ public class Whiteboard : MonoBehaviour
 
     private void HandleSnapshotChunk(SnapshotChunkMessage chunk)
     {
-        // Primo chunk: inizializza il buffer
         if (chunk.chunkIndex == 0 || _incomingChunks == null ||
             _incomingTotal != chunk.totalChunks)
         {
@@ -328,7 +337,6 @@ public class Whiteboard : MonoBehaviour
 
         Debug.Log($"[Whiteboard] Chunk {chunk.chunkIndex + 1}/{chunk.totalChunks} ricevuto");
 
-        // Tutti i chunk arrivati: ricostruisci e applica
         if (_incomingReceived == _incomingTotal)
         {
             ApplySnapshot(string.Concat(_incomingChunks));
@@ -343,12 +351,9 @@ public class Whiteboard : MonoBehaviour
         try
         {
             byte[] jpgBytes = Convert.FromBase64String(base64);
-
-            // LoadImage sovrascrive la texture esistente con i dati JPG decodificati
             texture.LoadImage(jpgBytes);
             texture.Apply();
             UpdateRenderTexture();
-
             Debug.Log("[Whiteboard] Snapshot applicato correttamente.");
         }
         catch (Exception e)
@@ -372,5 +377,28 @@ public class Whiteboard : MonoBehaviour
     {
         if (mirrorRenderTexture == null) return;
         Graphics.Blit(texture, mirrorRenderTexture);
+    }
+
+    /// <summary>
+    /// Campiona un sottoinsieme di pixel per determinare se la lavagna è ancora
+    /// completamente bianca. Evita il costo di leggere tutti i 4M di pixel.
+    /// </summary>
+    private bool IsTextureBlank()
+    {
+        int w = (int)textureSize.x;
+        int h = (int)textureSize.y;
+
+        // Controlla una griglia 16x16 di pixel campione
+        int step = w / 16;
+        for (int x = 0; x < w; x += step)
+        {
+            for (int y = 0; y < h; y += step)
+            {
+                Color c = texture.GetPixel(x, y);
+                if (c.r < 0.99f || c.g < 0.99f || c.b < 0.99f)
+                    return false;
+            }
+        }
+        return true;
     }
 }
