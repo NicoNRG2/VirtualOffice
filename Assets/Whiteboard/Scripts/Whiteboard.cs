@@ -56,12 +56,15 @@ public class Whiteboard : MonoBehaviour
 
     private List<WhiteboardMessage> _networkQueue = new List<WhiteboardMessage>();
 
+    // Pool di Color[] riusabile per evitare allocazioni continue nel loop
+    private Color[] _drawColorBuffer;
+    private int     _drawColorBufferSize = 0;
+
     // Ricostruzione snapshot in ingresso
     private string[] _incomingChunks;
     private int      _incomingTotal    = 0;
     private int      _incomingReceived = 0;
 
-    // FIX: cooldown separati per invio e risposta a richiesta
     private float _lastSnapshotSentTime    = -999f;
     private float _lastSnapshotRequestTime = -999f;
     private const float SNAPSHOT_SEND_COOLDOWN    = 2f;
@@ -113,58 +116,74 @@ public class Whiteboard : MonoBehaviour
     {
         if (_networkQueue.Count == 0) return;
 
+        bool dirty = false;
+
         foreach (var msg in _networkQueue)
         {
-            if (msg.isClear) { FillWhite(); continue; }
+            if (msg.isClear)
+            {
+                FillWhite();
+                dirty = true;
+                continue;
+            }
 
-            var col    = new Color(msg.r, msg.g, msg.b, msg.a);
-            var colors = new Color[msg.penSize * msg.penSize];
-            for (int i = 0; i < colors.Length; i++) colors[i] = col;
+            var col = new Color(msg.r, msg.g, msg.b, msg.a);
 
-            int cx = Mathf.Clamp(msg.x, 0, (int)textureSize.x - msg.penSize);
-            int cy = Mathf.Clamp(msg.y, 0, (int)textureSize.y - msg.penSize);
-            texture.SetPixels(cx, cy, msg.penSize, msg.penSize, colors);
+            // Riusa il buffer di colori se la dimensione è la stessa, altrimenti riallocalo
+            int needed = msg.penSize * msg.penSize;
+            if (_drawColorBuffer == null || _drawColorBufferSize != needed)
+            {
+                _drawColorBuffer     = new Color[needed];
+                _drawColorBufferSize = needed;
+            }
+            for (int i = 0; i < needed; i++) _drawColorBuffer[i] = col;
 
             if (msg.hasLast)
             {
-                for (float f = 0.01f; f < 1.00f; f += 0.01f)
+                // Lerp dal punto precedente a quello corrente (stessa logica del marker locale)
+                for (float f = 0f; f <= 1.00f; f += 0.01f)
                 {
                     int lerpX = Mathf.Clamp((int)Mathf.Lerp(msg.lastX, msg.x, f),
                                             0, (int)textureSize.x - msg.penSize);
                     int lerpY = Mathf.Clamp((int)Mathf.Lerp(msg.lastY, msg.y, f),
                                             0, (int)textureSize.y - msg.penSize);
-                    texture.SetPixels(lerpX, lerpY, msg.penSize, msg.penSize, colors);
+                    texture.SetPixels(lerpX, lerpY, msg.penSize, msg.penSize, _drawColorBuffer);
                 }
             }
+            else
+            {
+                // Primo punto del tratto
+                int cx = Mathf.Clamp(msg.x, 0, (int)textureSize.x - msg.penSize);
+                int cy = Mathf.Clamp(msg.y, 0, (int)textureSize.y - msg.penSize);
+                texture.SetPixels(cx, cy, msg.penSize, msg.penSize, _drawColorBuffer);
+            }
+
+            dirty = true;
         }
 
         _networkQueue.Clear();
-        texture.Apply();
-        UpdateRenderTexture();
+
+        if (dirty)
+        {
+            texture.Apply();
+            UpdateRenderTexture();
+        }
     }
 
     // -------------------------------------------------------
     // Ubiq Room events
     // -------------------------------------------------------
 
-    /// <summary>
-    /// Chiamato su TUTTI i peer esistenti quando un nuovo peer entra.
-    /// Solo il "master" (UUID lessicograficamente minore TRA TUTTI, incluso Me)
-    /// invia lo snapshot.
-    /// </summary>
     private void OnPeerAdded(IPeer newPeer)
     {
         if (_roomClient == null) return;
         if (!gameObject.activeInHierarchy || !enabled) return;
 
-        // FIX: includo Me nel confronto degli UUID
-        string myUuid   = _roomClient.Me.uuid;
+        string myUuid    = _roomClient.Me.uuid;
         bool   iAmMaster = true;
 
         foreach (var peer in _roomClient.Peers)
         {
-            // Il nuovo peer appena entrato non è ancora un buon "master":
-            // non ha lo stato della lavagna, saltalo nel confronto.
             if (peer.uuid == newPeer.uuid) continue;
 
             if (string.Compare(peer.uuid, myUuid, StringComparison.Ordinal) < 0)
@@ -176,7 +195,6 @@ public class Whiteboard : MonoBehaviour
 
         if (!iAmMaster) return;
 
-        // FIX: non inviare snapshot se la lavagna è bianca (evita sovrascritture)
         if (IsTextureBlank())
         {
             Debug.Log("[Whiteboard] Sono master ma la lavagna è bianca: snapshot non inviato.");
@@ -186,15 +204,10 @@ public class Whiteboard : MonoBehaviour
         StartCoroutine(SendSnapshotAfterDelay(0.5f));
     }
 
-    /// <summary>
-    /// FIX: il nuovo peer NON invia snapshot (non ha contenuto).
-    /// Si limita a richiedere lo stato agli altri peer.
-    /// </summary>
     private void OnJoinedRoom(IRoom room)
     {
         if (!gameObject.activeInHierarchy || !enabled) return;
 
-        // Richiedi lo snapshot agli altri solo se non l'abbiamo già richiesto di recente
         if (Time.time - _lastSnapshotRequestTime < SNAPSHOT_REQUEST_COOLDOWN) return;
         _lastSnapshotRequestTime = Time.time;
 
@@ -258,10 +271,8 @@ public class Whiteboard : MonoBehaviour
             var req = message.FromJson<SnapshotRequestMessage>();
             if (req.isRequest)
             {
-                // FIX: cooldown separato per rispondere alle richieste
                 if (Time.time - _lastSnapshotSentTime < SNAPSHOT_SEND_COOLDOWN) return;
 
-                // FIX: non rispondere se la lavagna è bianca
                 if (IsTextureBlank())
                 {
                     Debug.Log("[Whiteboard] Ricevuta richiesta snapshot ma lavagna bianca: ignorata.");
@@ -379,16 +390,11 @@ public class Whiteboard : MonoBehaviour
         Graphics.Blit(texture, mirrorRenderTexture);
     }
 
-    /// <summary>
-    /// Campiona un sottoinsieme di pixel per determinare se la lavagna è ancora
-    /// completamente bianca. Evita il costo di leggere tutti i 4M di pixel.
-    /// </summary>
     private bool IsTextureBlank()
     {
         int w = (int)textureSize.x;
         int h = (int)textureSize.y;
 
-        // Controlla una griglia 16x16 di pixel campione
         int step = w / 16;
         for (int x = 0; x < w; x += step)
         {

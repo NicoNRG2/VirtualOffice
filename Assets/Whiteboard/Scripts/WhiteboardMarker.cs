@@ -31,9 +31,11 @@ public class WhiteboardMarker : MonoBehaviour
 
     private RaycastHit _touch;
     private Whiteboard _whiteboard;
-    private Vector2 _touchPos, _lastTouchPos;
+    private Vector2 _touchPos;
+
+    // Coordinate texture dell'ultimo punto disegnato (già clampate)
+    private int _lastTexX, _lastTexY;
     private bool _touchedLastFrame;
-    private Quaternion _lastTouchRot;
 
     // -------------------------------------------------------
     // Unity lifecycle
@@ -71,7 +73,6 @@ public class WhiteboardMarker : MonoBehaviour
 
     void Update()
     {
-        // FIX: invia la posizione in rete solo se siamo owner
         if (!_isOwner) return;
 
         Draw();
@@ -96,7 +97,7 @@ public class WhiteboardMarker : MonoBehaviour
     private void OnRelease(SelectExitEventArgs args)
     {
         SetOwner(false);
-        _touchedLastFrame = false; // FIX: resetta stato pennello al rilascio
+        _touchedLastFrame = false;
         _whiteboard       = null;
         ColorPickerUI.Instance?.UnregisterMarker();
     }
@@ -151,48 +152,48 @@ public class WhiteboardMarker : MonoBehaviour
 
                 _touchPos = new Vector2(_touch.textureCoord.x, _touch.textureCoord.y);
 
-                var x = (int)(_touchPos.x * _whiteboard.textureSize.x - (_penSize / 2));
-                var y = (int)(_touchPos.y * _whiteboard.textureSize.y - (_penSize / 2));
+                int x = (int)(_touchPos.x * _whiteboard.textureSize.x - (_penSize / 2));
+                int y = (int)(_touchPos.y * _whiteboard.textureSize.y - (_penSize / 2));
 
-                if (y < 0 || y > _whiteboard.textureSize.y ||
-                    x < 0 || x > _whiteboard.textureSize.x)
-                    return;
+                // Clamp per evitare out-of-bounds
+                x = Mathf.Clamp(x, 0, (int)_whiteboard.textureSize.x - _penSize);
+                y = Mathf.Clamp(y, 0, (int)_whiteboard.textureSize.y - _penSize);
 
                 if (_touchedLastFrame)
                 {
-                    _whiteboard.texture.SetPixels(x, y, _penSize, _penSize, _colors);
-
-                    for (float f = 0.01f; f < 1.00f; f += 0.01f)
+                    // --- Disegno locale con lerp ---
+                    for (float f = 0f; f <= 1.00f; f += 0.01f)
                     {
-                        var lerpX = (int)Mathf.Lerp(_lastTouchPos.x, x, f);
-                        var lerpY = (int)Mathf.Lerp(_lastTouchPos.y, y, f);
+                        int lerpX = Mathf.Clamp((int)Mathf.Lerp(_lastTexX, x, f),
+                                                0, (int)_whiteboard.textureSize.x - _penSize);
+                        int lerpY = Mathf.Clamp((int)Mathf.Lerp(_lastTexY, y, f),
+                                                0, (int)_whiteboard.textureSize.y - _penSize);
                         _whiteboard.texture.SetPixels(lerpX, lerpY, _penSize, _penSize, _colors);
                     }
-
-                    transform.rotation = _lastTouchRot;
                     _whiteboard.texture.Apply();
                     _whiteboard.UpdateRenderTexture();
 
-                    _whiteboard.SendDraw(
-                        x, y,
-                        (int)_lastTouchPos.x, (int)_lastTouchPos.y,
-                        true,
-                        _penSize,
-                        _currentColor
-                    );
+                    // --- Invio rete: lastX/lastY sono le stesse coordinate già clampate ---
+                    _whiteboard.SendDraw(x, y, _lastTexX, _lastTexY, true, _penSize, _currentColor);
                 }
                 else
                 {
+                    // Primo punto del tratto: disegna subito anche localmente
+                    _whiteboard.texture.SetPixels(x, y, _penSize, _penSize, _colors);
+                    _whiteboard.texture.Apply();
+                    _whiteboard.UpdateRenderTexture();
+
                     _whiteboard.SendDraw(x, y, 0, 0, false, _penSize, _currentColor);
                 }
 
-                _lastTouchPos     = new Vector2(x, y);
-                _lastTouchRot     = transform.rotation;
+                _lastTexX         = x;
+                _lastTexY         = y;
                 _touchedLastFrame = true;
                 return;
             }
         }
 
+        // Non sta toccando la whiteboard
         _whiteboard       = null;
         _touchedLastFrame = false;
     }
