@@ -1,26 +1,28 @@
 using System.Linq;
-using System.Collections;
 using UnityEngine;
 using Ubiq.Rooms;
 
 /// <summary>
 /// Attiva/disattiva le Workstation e i Virtual_Whiteboard in base
 /// al numero di utenti connessi alla stanza Ubiq (1-4).
+///
+/// Assegnazione slot: deterministica, senza race condition.
+/// Ogni client calcola il proprio slot ordinando tutti i peer uuid
+/// (incluso il proprio) in modo lessicografico. Il posto nell'ordine
+/// corrisponde al numero di slot (1 = uuid più piccolo).
+/// Non viene scritta nessuna peer property: niente persistenza sporca,
+/// niente write concorrenti.
 /// </summary>
 public class WorkstationManager : MonoBehaviour
 {
     [Header("Workstations (index 0 = Workstation1, index 3 = Workstation4)")]
     [SerializeField] private GameObject[] workstations = new GameObject[4];
 
-    // Chiave della peer property che memorizza il numero di slot (1-4)
-    private const string SLOT_KEY = "wm_slot";
-
     private RoomClient roomClient;
 
-    private int  lastActiveCount       = -1;
-    private int  lastLocalPlayerNumber = -1;
-    private int  localPlayerNumber     =  0;   // 0 = non ancora assegnato
-    private bool _claimingSlot         = false; // guard anti-coroutine-duplicata
+    // Cache per evitare refresh ridondanti
+    private int lastActiveCount       = -1;
+    private int lastLocalPlayerNumber = -1;
 
     // -------------------------------------------------------------------------
     // Lifecycle
@@ -37,20 +39,16 @@ public class WorkstationManager : MonoBehaviour
         }
 
         roomClient.OnJoinedRoom.AddListener(OnJoinedRoom);
-        roomClient.OnPeerAdded.AddListener(OnPeerAdded);
-        roomClient.OnPeerRemoved.AddListener(OnPeerRemoved);
-        roomClient.OnRoomUpdated.AddListener(OnRoomUpdated);
-
-        RefreshVisibility();
+        roomClient.OnPeerAdded.AddListener(OnPeerChanged);
+        roomClient.OnPeerRemoved.AddListener(OnPeerChanged);
     }
 
     private void OnDestroy()
     {
         if (roomClient == null) return;
         roomClient.OnJoinedRoom.RemoveListener(OnJoinedRoom);
-        roomClient.OnPeerAdded.RemoveListener(OnPeerAdded);
-        roomClient.OnPeerRemoved.RemoveListener(OnPeerRemoved);
-        roomClient.OnRoomUpdated.RemoveListener(OnRoomUpdated);
+        roomClient.OnPeerAdded.RemoveListener(OnPeerChanged);
+        roomClient.OnPeerRemoved.RemoveListener(OnPeerChanged);
     }
 
     // -------------------------------------------------------------------------
@@ -59,119 +57,36 @@ public class WorkstationManager : MonoBehaviour
 
     private void OnJoinedRoom(IRoom room)
     {
-        // Reset: sarà riassegnato da ClaimSlotCoroutine
-        localPlayerNumber     = 0;
+        // Resetta la cache così il prossimo refresh non viene saltato
+        lastActiveCount       = -1;
         lastLocalPlayerNumber = -1;
-        _claimingSlot         = false;
         RefreshVisibility();
     }
 
-    private void OnPeerAdded(IPeer peer)
-    {
-        // Se non abbiamo ancora uno slot, prova ad assegnarne uno ora
-        // (utile se il primo OnRoomUpdated è arrivato troppo presto)
-        if (localPlayerNumber == 0)
-            TryClaimSlot();
-
-        RefreshVisibility();
-    }
-
-    private void OnPeerRemoved(IPeer peer) => RefreshVisibility();
-
-    private void OnRoomUpdated(IRoom room)
-    {
-        if (localPlayerNumber == 0)
-            TryClaimSlot();
-
-        RefreshVisibility();
-    }
+    private void OnPeerChanged(IPeer peer) => RefreshVisibility();
 
     // -------------------------------------------------------------------------
-    // Slot assignment
+    // Slot assignment: deterministico, senza scritture
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Punto di ingresso pubblico: avvia la coroutine solo se non è già in corso.
+    /// Calcola il numero di slot del client locale ordinando gli uuid
+    /// di tutti i partecipanti (Me incluso) in modo lessicografico.
+    /// Stessa logica su tutti i client → stesso risultato senza comunicazione.
     /// </summary>
-    private void TryClaimSlot()
+    private int ComputeLocalSlot()
     {
-        if (_claimingSlot || localPlayerNumber != 0) return;
-        _claimingSlot = true;
-        StartCoroutine(ClaimSlotCoroutine());
-    }
+        if (roomClient?.Me == null) return 0;
 
-    /// <summary>
-    /// Assegna lo slot con un breve delay per permettere alle peer property
-    /// dei peer già connessi di sincronizzarsi prima della lettura.
-    /// Usa le PEER property (roomClient.Me["wm_slot"]) invece delle room
-    /// property: le peer property arrivano atomicamente con lo stato del peer,
-    /// eliminando la race condition che assegnava slot 1 a tutti.
-    /// </summary>
-    private IEnumerator ClaimSlotCoroutine()
-    {
-        // Lascia propagare le peer property dei peer già presenti
-        yield return new WaitForSeconds(0.5f);
+        // Raccoglie uuid di tutti i peer + il nostro
+        var allUuids = roomClient.Peers
+            .Select(p => p.uuid)
+            .Append(roomClient.Me.uuid)
+            .OrderBy(id => id)          // ordine lessicografico stabile
+            .ToList();
 
-        // Se nel frattempo lo slot è già stato assegnato (es. doppia chiamata), esci
-        if (localPlayerNumber != 0)
-        {
-            _claimingSlot = false;
-            yield break;
-        }
-
-        // Caso reconnect: la nostra peer property potrebbe essere già valorizzata
-        if (roomClient?.Me != null)
-        {
-            string existing = roomClient.Me[SLOT_KEY];
-            if (!string.IsNullOrEmpty(existing) &&
-                int.TryParse(existing, out int n) &&
-                n >= 1 && n <= 4)
-            {
-                localPlayerNumber = n;
-                lastLocalPlayerNumber = -1;
-                _claimingSlot = false;
-                Debug.Log($"[WorkstationManager] Slot ripristinato dalla peer property: Player {localPlayerNumber}");
-                RefreshVisibility();
-                yield break;
-            }
-        }
-
-        // Leggi gli slot già occupati dalle peer property dei peer connessi
-        bool[] occupied = new bool[5]; // indici 1-4
-
-        foreach (var peer in roomClient.Peers)
-        {
-            string val = peer[SLOT_KEY];
-            if (!string.IsNullOrEmpty(val) &&
-                int.TryParse(val, out int taken) &&
-                taken >= 1 && taken <= 4)
-            {
-                occupied[taken] = true;
-                Debug.Log($"[WorkstationManager] Peer {peer.uuid} occupa slot {taken}");
-            }
-        }
-
-        // Prendi il primo slot libero e scrivilo nella nostra peer property
-        for (int slot = 1; slot <= 4; slot++)
-        {
-            if (!occupied[slot])
-            {
-                localPlayerNumber = slot;
-                roomClient.Me[SLOT_KEY] = slot.ToString();
-                lastLocalPlayerNumber = -1;
-                _claimingSlot = false;
-                Debug.Log($"[WorkstationManager] Slot assegnato: Player {localPlayerNumber}");
-                RefreshVisibility();
-                yield break;
-            }
-        }
-
-        // Tutti gli slot 1-4 sono occupati (caso >4 utenti o sincronizzazione lenta):
-        // rilascia il guard e riprova dopo un po'
-        _claimingSlot = false;
-        Debug.LogWarning("[WorkstationManager] Nessuno slot libero, riprovo tra 2s...");
-        yield return new WaitForSeconds(2f);
-        TryClaimSlot();
+        int index = allUuids.IndexOf(roomClient.Me.uuid);
+        return index >= 0 ? index + 1 : 0; // slot 1-based, 0 = non trovato
     }
 
     // -------------------------------------------------------------------------
@@ -182,11 +97,12 @@ public class WorkstationManager : MonoBehaviour
     {
         if (roomClient == null) return;
 
-        int activeCount = Mathf.Clamp(roomClient.Peers.Count() + 1, 1, 4);
+        // +1 perché Peers non include il client locale
+        int activeCount      = Mathf.Clamp(roomClient.Peers.Count() + 1, 1, 4);
+        int localPlayerNumber = ComputeLocalSlot();
 
-        bool slotPending = (localPlayerNumber == 0);
-        if (!slotPending &&
-            activeCount == lastActiveCount &&
+        // Salta se nulla è cambiato
+        if (activeCount       == lastActiveCount &&
             localPlayerNumber == lastLocalPlayerNumber)
             return;
 
@@ -209,24 +125,25 @@ public class WorkstationManager : MonoBehaviour
             workstations[i].SetActive(shouldBeActive);
 
             if (shouldBeActive)
-                UpdateVirtualWhiteboards(workstations[i], workstationNumber, activeCount);
+                UpdateVirtualWhiteboards(workstations[i], workstationNumber, activeCount, localPlayerNumber);
         }
     }
 
     /// <summary>
-    /// Mostra i Virtual_Whiteboard_j sulla workstation locale (quella il cui numero
-    /// corrisponde a localPlayerNumber) e li nasconde su tutte le altre.
+    /// Mostra i Virtual_Whiteboard_j solo sulla workstation del giocatore locale.
+    /// Sulle altre workstation i virtual monitor vengono nascosti.
     /// </summary>
     private void UpdateVirtualWhiteboards(GameObject workstation,
                                           int ownWorkstationNumber,
-                                          int activeCount)
+                                          int activeCount,
+                                          int localPlayerNumber)
     {
         bool isMyWorkstation = (localPlayerNumber != 0 &&
                                 ownWorkstationNumber == localPlayerNumber);
 
         for (int j = 1; j <= 4; j++)
         {
-            if (j == ownWorkstationNumber) continue;
+            if (j == ownWorkstationNumber) continue; // il monitor fisico non è un VW
 
             string    vwName      = $"Virtual_Whiteboard_{j}";
             Transform vwTransform = workstation.transform.Find(vwName)
@@ -240,6 +157,9 @@ public class WorkstationManager : MonoBehaviour
                 continue;
             }
 
+            // Mostra il virtual monitor solo se:
+            // - siamo sulla nostra workstation
+            // - il peer a cui corrisponde è connesso
             bool show = isMyWorkstation && j <= activeCount;
             vwTransform.gameObject.SetActive(show);
         }
@@ -273,9 +193,11 @@ public class WorkstationManager : MonoBehaviour
     {
         lastActiveCount       = -1;
         lastLocalPlayerNumber = -1;
-        localPlayerNumber     = Mathf.Clamp(debugLocalPlayerNumber, 1, 4);
-        int clamped = Mathf.Clamp(count, 1, 4);
-        Debug.Log($"[WorkstationManager] SIMULAZIONE: {clamped} utenti | LocalPlayer={localPlayerNumber}");
+
+        int localPlayer = Mathf.Clamp(debugLocalPlayerNumber, 1, 4);
+        int clamped     = Mathf.Clamp(count, 1, 4);
+
+        Debug.Log($"[WorkstationManager] SIMULAZIONE: {clamped} utenti | LocalPlayer={localPlayer}");
 
         for (int i = 0; i < workstations.Length; i++)
         {
@@ -283,7 +205,7 @@ public class WorkstationManager : MonoBehaviour
             int  wn     = i + 1;
             bool active = wn <= clamped;
             workstations[i].SetActive(active);
-            if (active) UpdateVirtualWhiteboards(workstations[i], wn, clamped);
+            if (active) UpdateVirtualWhiteboards(workstations[i], wn, clamped, localPlayer);
         }
     }
 #endif
