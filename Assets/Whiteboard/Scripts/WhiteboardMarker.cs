@@ -6,6 +6,7 @@ using UnityEngine.XR.Interaction.Toolkit;
 [RequireComponent(typeof(UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable))]
 public class WhiteboardMarker : MonoBehaviour
 {
+    [SerializeField] private ColorPickerUI _colorPickerUI;
     [SerializeField] private Transform _tip;
     [SerializeField] private int _penSize = 5;
     [SerializeField] private float _drawDistance = 0.005f;
@@ -91,7 +92,12 @@ public class WhiteboardMarker : MonoBehaviour
     private void OnGrab(SelectEnterEventArgs args)
     {
         SetOwner(true);
-        ColorPickerUI.Instance?.RegisterMarker(this);
+
+        // Se non è assegnato manualmente, cerca il canvas più vicino
+        if (_colorPickerUI == null)
+            _colorPickerUI = FindNearestColorPicker();
+
+        _colorPickerUI?.RegisterMarker(this);
     }
 
     private void OnRelease(SelectExitEventArgs args)
@@ -99,7 +105,21 @@ public class WhiteboardMarker : MonoBehaviour
         SetOwner(false);
         _touchedLastFrame = false;
         _whiteboard       = null;
-        ColorPickerUI.Instance?.UnregisterMarker();
+        _colorPickerUI?.UnregisterMarker();
+    }
+
+    private ColorPickerUI FindNearestColorPicker()
+    {
+        ColorPickerUI[] all = FindObjectsByType<ColorPickerUI>(FindObjectsSortMode.None);
+        ColorPickerUI nearest = null;
+        float minDist = float.MaxValue;
+
+        foreach (var ui in all)
+        {
+            float d = Vector3.Distance(transform.position, ui.transform.position);
+            if (d < minDist) { minDist = d; nearest = ui; }
+        }
+        return nearest;
     }
 
     // -------------------------------------------------------

@@ -2,13 +2,9 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
-/// <summary>
-/// Color picker HSV a schermo per cambiare il colore di WhiteboardMarker.
-/// </summary>
 public class ColorPickerUI : MonoBehaviour
 {
-    // Singleton leggero: accessibile da PenController senza riferimento diretto
-    public static ColorPickerUI Instance { get; private set; }
+    // Niente più Singleton — ogni istanza è indipendente
 
     [Header("Riferimenti UI")]
     [SerializeField] private GameObject     pickerPanel;
@@ -16,29 +12,16 @@ public class ColorPickerUI : MonoBehaviour
     [SerializeField] private Slider         hueSlider;
     [SerializeField] private Slider         satSlider;
     [SerializeField] private Slider         valSlider;
-    [SerializeField] private TMP_InputField hexInput;     // opzionale
-    [SerializeField] private Button         eraserButton; // opzionale
+    [SerializeField] private TMP_InputField hexInput;
+    [SerializeField] private Button         eraserButton;
     [SerializeField] private Button         toggleButton;
 
-    [Header("Colore di default (nessun marker registrato)")]
+    [Header("Colore di default")]
     [SerializeField] private Color defaultColor = Color.black;
 
-    // -------------------------------------------------------
-    // Stato interno
-    // -------------------------------------------------------
-    private WhiteboardMarker _marker;   // marker attualmente in mano
+    private WhiteboardMarker _marker;
     private float _h, _s, _v;
     private bool  _suppressCallbacks;
-
-    // -------------------------------------------------------
-    // Unity lifecycle
-    // -------------------------------------------------------
-
-    private void Awake()
-    {
-        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
-        Instance = this;
-    }
 
     private void Start()
     {
@@ -50,7 +33,6 @@ public class ColorPickerUI : MonoBehaviour
         if (eraserButton != null) eraserButton.onClick.AddListener(OnEraserClicked);
         if (toggleButton != null) toggleButton.onClick.AddListener(TogglePanel);
 
-        // Stato iniziale con il colore di default
         Color.RGBToHSV(defaultColor, out _h, out _s, out _v);
         ApplyHSVToSliders();
         RefreshUI();
@@ -59,43 +41,31 @@ public class ColorPickerUI : MonoBehaviour
     }
 
     // -------------------------------------------------------
-    // API pubblica — chiamata da PenController / XRGrabInteractable
+    // API pubblica — ora chiamata da WhiteboardMarker direttamente
     // -------------------------------------------------------
 
-    /// <summary>
-    /// Registra il marker appena afferrato e aggiorna la UI
-    /// con il suo colore corrente.
-    /// </summary>
     public void RegisterMarker(WhiteboardMarker marker)
     {
         _marker = marker;
+        if (_marker == null) return;
 
-        if (_marker != null)
-        {
-            // Sincronizza la UI con il colore già presente sul marker
-            Color.RGBToHSV(_marker.GetColor(), out _h, out _s, out _v);
-            _suppressCallbacks = true;
-            ApplyHSVToSliders();
-            _suppressCallbacks = false;
-            RefreshUI();
-        }
+        Color.RGBToHSV(_marker.GetColor(), out _h, out _s, out _v);
+        _suppressCallbacks = true;
+        ApplyHSVToSliders();
+        _suppressCallbacks = false;
+        RefreshUI();
 
-        Debug.Log($"[ColorPickerUI] Marker registrato: {marker?.name ?? "null"}");
+        Debug.Log($"[ColorPickerUI] ({name}) Marker registrato: {marker.name}");
     }
 
-    /// <summary>
-    /// Deregistra il marker quando la penna viene rilasciata.
-    /// La UI rimane visibile ma non applica colori finché non si
-    /// afferra un altro marker.
-    /// </summary>
     public void UnregisterMarker()
     {
         _marker = null;
-        Debug.Log("[ColorPickerUI] Marker deregistrato.");
+        Debug.Log($"[ColorPickerUI] ({name}) Marker deregistrato.");
     }
 
     // -------------------------------------------------------
-    // Toggle visibilità pannello
+    // Toggle
     // -------------------------------------------------------
 
     public void TogglePanel()
@@ -140,7 +110,7 @@ public class ColorPickerUI : MonoBehaviour
 
     private void OnEraserClicked()
     {
-        _h = 0f; _s = 0f; _v = 1f; // bianco = gomma
+        _h = 0f; _s = 0f; _v = 1f;
         _suppressCallbacks = true;
         ApplyHSVToSliders();
         _suppressCallbacks = false;
@@ -148,9 +118,6 @@ public class ColorPickerUI : MonoBehaviour
         ApplyToMarker();
     }
 
-    /// <summary>
-    /// Imposta un colore da bottoni preset esterni (onClick nel Inspector).
-    /// </summary>
     public void SetColor(Color color)
     {
         Color.RGBToHSV(color, out _h, out _s, out _v);
