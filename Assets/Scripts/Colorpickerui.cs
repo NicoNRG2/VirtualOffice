@@ -2,10 +2,10 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 
+// Each workstation has its own independent ColorPickerUI instance.
+// There is no singleton — multiple pickers can coexist in the scene simultaneously.
 public class ColorPickerUI : MonoBehaviour
 {
-    // Niente più Singleton — ogni istanza è indipendente
-
     [Header("Riferimenti UI")]
     [SerializeField] private GameObject     pickerPanel;
     [SerializeField] private Image          colorPreview;
@@ -19,12 +19,19 @@ public class ColorPickerUI : MonoBehaviour
     [Header("Colore di default")]
     [SerializeField] private Color defaultColor = Color.black;
 
+    // The marker currently controlled by this picker. Null when no marker is held.
     private WhiteboardMarker _marker;
+
+    // Internal HSV representation — converted to RGB only when applying to the marker or UI.
     private float _h, _s, _v;
+
+    // Guard flag: prevents UI callbacks from firing while the code itself updates sliders/fields,
+    // which would otherwise cause infinite feedback loops.
     private bool  _suppressCallbacks;
 
     private void Start()
     {
+        // Wire up all UI controls to their respective callbacks.
         hueSlider.onValueChanged.AddListener(OnHSVSliderChanged);
         satSlider.onValueChanged.AddListener(OnHSVSliderChanged);
         valSlider.onValueChanged.AddListener(OnHSVSliderChanged);
@@ -33,6 +40,7 @@ public class ColorPickerUI : MonoBehaviour
         if (eraserButton != null) eraserButton.onClick.AddListener(OnEraserClicked);
         if (toggleButton != null) toggleButton.onClick.AddListener(TogglePanel);
 
+        // Initialise UI to the default color without triggering callbacks.
         Color.RGBToHSV(defaultColor, out _h, out _s, out _v);
         ApplyHSVToSliders();
         RefreshUI();
@@ -41,9 +49,10 @@ public class ColorPickerUI : MonoBehaviour
     }
 
     // -------------------------------------------------------
-    // API pubblica — ora chiamata da WhiteboardMarker direttamente
+    // Public API — called by WhiteboardMarker on grab/release
     // -------------------------------------------------------
 
+    // Associates a marker with this picker and syncs the UI to the marker's current color.
     public void RegisterMarker(WhiteboardMarker marker)
     {
         _marker = marker;
@@ -65,7 +74,7 @@ public class ColorPickerUI : MonoBehaviour
     }
 
     // -------------------------------------------------------
-    // Toggle
+    // Panel visibility
     // -------------------------------------------------------
 
     public void TogglePanel()
@@ -78,9 +87,11 @@ public class ColorPickerUI : MonoBehaviour
     public void HidePanel() { if (pickerPanel != null) pickerPanel.SetActive(false); }
 
     // -------------------------------------------------------
-    // Callbacks UI
+    // UI callbacks
     // -------------------------------------------------------
 
+    // Fired whenever any HSV slider changes value; reads all three sliders together
+    // to rebuild the color and push it to the marker.
     private void OnHSVSliderChanged(float _)
     {
         if (_suppressCallbacks) return;
@@ -91,6 +102,7 @@ public class ColorPickerUI : MonoBehaviour
         ApplyToMarker();
     }
 
+    // Parses a 6- or 8-digit hex string entered by the user and converts it to HSV.
     private void OnHexInputChanged(string hex)
     {
         if (_suppressCallbacks) return;
@@ -108,6 +120,8 @@ public class ColorPickerUI : MonoBehaviour
         }
     }
 
+    // The eraser sets the color to pure white (H=0, S=0, V=1),
+    // effectively painting over existing strokes with the background color.
     private void OnEraserClicked()
     {
         _h = 0f; _s = 0f; _v = 1f;
@@ -118,6 +132,7 @@ public class ColorPickerUI : MonoBehaviour
         ApplyToMarker();
     }
 
+    // External entry point — allows other scripts to drive the picker programmatically.
     public void SetColor(Color color)
     {
         Color.RGBToHSV(color, out _h, out _s, out _v);
@@ -132,6 +147,8 @@ public class ColorPickerUI : MonoBehaviour
     // Helpers
     // -------------------------------------------------------
 
+    // Pushes the internal HSV values back to the three sliders (suppression must be
+    // managed by the caller to avoid callback loops).
     private void ApplyHSVToSliders()
     {
         hueSlider.value = _h;
@@ -139,6 +156,7 @@ public class ColorPickerUI : MonoBehaviour
         valSlider.value = _v;
     }
 
+    // Updates the color preview image and the hex input field to match current HSV.
     private void RefreshUI()
     {
         Color current = Color.HSVToRGB(_h, _s, _v);
@@ -151,6 +169,7 @@ public class ColorPickerUI : MonoBehaviour
         }
     }
 
+    // Converts the current HSV state to RGB and sends it to the registered marker.
     private void ApplyToMarker()
     {
         if (_marker == null) return;

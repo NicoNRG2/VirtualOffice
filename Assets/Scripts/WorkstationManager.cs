@@ -4,25 +4,26 @@ using UnityEngine;
 using Ubiq.Rooms;
 
 /// <summary>
-/// Attiva/disattiva le Workstation e i Virtual_Whiteboard in base
-/// al numero di utenti connessi alla stanza Ubiq (1-4).
+/// Activates/deactivates Workstations and Virtual_Whiteboard objects based on
+/// the number of users connected to the Ubiq room (1–4).
 ///
-/// Assegnazione slot: basata sull'ordine di arrivo nella stanza.
-/// Al join, il client conta quanti peer hanno già uno slot assegnato
-/// e prende il primo libero. Lo slot viene scritto nella peer property
-/// UNA SOLA VOLTA e non cambia mai per tutta la sessione, anche se
-/// entrano o escono altri utenti.
+/// Slot assignment: first-come, first-served, based on arrival order in the room.
+/// On join, the client counts how many peers already have a slot assigned and
+/// claims the first free one. The slot is written to a peer property ONCE and
+/// never changes for the entire session, even if other users enter or leave.
 /// </summary>
 public class WorkstationManager : MonoBehaviour
 {
     [Header("Workstations (index 0 = Workstation1, index 3 = Workstation4)")]
     [SerializeField] private GameObject[] workstations = new GameObject[4];
 
+    // Key used to store the slot number in Ubiq's per-peer property dictionary,
+    // so all clients can read each other's assigned slot.
     private const string SLOT_KEY = "wm_slot";
 
     private RoomClient roomClient;
 
-    private int  localPlayerNumber    = 0;   // 0 = non ancora assegnato
+    private int  localPlayerNumber    = 0;   // 0 = not yet assigned
     private int  lastActiveCount      = -1;
     private int  lastLocalPlayerNumber = -1;
 
@@ -57,41 +58,41 @@ public class WorkstationManager : MonoBehaviour
     // Ubiq callbacks
     // -------------------------------------------------------------------------
 
+    // Called when this client successfully joins a room. Resets all state and
+    // clears any stale slot property left from a previous session before claiming a new slot.
     private void OnJoinedRoom(IRoom room)
     {
-        // Reset completo ad ogni join (nuova stanza = nuovo slot)
         localPlayerNumber     = 0;
         lastActiveCount       = -1;
         lastLocalPlayerNumber = -1;
 
-        // Cancella l'eventuale slot residuo dalla sessione precedente
-        // così gli altri peer non lo leggono come "occupato"
         if (roomClient?.Me != null)
             roomClient.Me[SLOT_KEY] = "";
 
         StartCoroutine(ClaimSlotCoroutine());
     }
 
+    // Any peer addition or removal triggers a visibility refresh so the scene
+    // always reflects the current number of active users.
     private void OnPeerChanged(IPeer peer) => RefreshVisibility();
 
     // -------------------------------------------------------------------------
-    // Slot assignment: ordine di arrivo, scritto una volta sola
+    // Slot assignment — first-come, first-served, written once
     // -------------------------------------------------------------------------
 
     /// <summary>
-    /// Attende che le peer property dei peer già connessi arrivino,
-    /// poi prende il primo slot libero e lo fissa per l'intera sessione.
-    /// Il delay copre la finestra di sincronizzazione iniziale di Ubiq.
+    /// Waits for Ubiq's initial peer-property sync to complete, reads which slots
+    /// are already taken, and claims the lowest free slot.
+    /// Retries after 2 s if all four slots appear occupied (transient sync issue).
     /// </summary>
     private IEnumerator ClaimSlotCoroutine()
     {
-        // Lascia propagare le peer property dei peer già presenti.
-        // 0.8s è conservativo ma sicuro per LAN/localhost; aumenta
-        // a 1.5s se usi server remoti con latenza alta.
+        // Conservative delay to let peer properties from already-connected clients propagate.
+        // Increase to ~1.5 s for high-latency remote servers.
         yield return new WaitForSeconds(0.8f);
 
-        // Leggi gli slot già occupati dagli altri peer
-        bool[] occupied = new bool[5]; // indici 1-4, 0 ignorato
+        // Read the slot claimed by each peer already in the room.
+        bool[] occupied = new bool[5]; // indices 1–4; index 0 is unused
 
         foreach (var peer in roomClient.Peers)
         {
@@ -105,36 +106,40 @@ public class WorkstationManager : MonoBehaviour
             }
         }
 
-        // Prendi il primo slot libero
+        // Assign the first available slot and publish it so other peers can see it.
         for (int slot = 1; slot <= 4; slot++)
         {
             if (!occupied[slot])
             {
                 localPlayerNumber    = slot;
-                roomClient.Me[SLOT_KEY] = slot.ToString(); // scrivi UNA SOLA VOLTA
+                roomClient.Me[SLOT_KEY] = slot.ToString();
                 Debug.Log($"[WorkstationManager] Slot assegnato: Player {localPlayerNumber}");
                 RefreshVisibility();
                 yield break;
             }
         }
 
-        // Tutti gli slot occupati (>4 utenti o sync ancora in corso): riprova
+        // All slots occupied (>4 users or sync still in progress) — retry after a short wait.
         Debug.LogWarning("[WorkstationManager] Nessuno slot libero, riprovo tra 2s...");
         yield return new WaitForSeconds(2f);
         StartCoroutine(ClaimSlotCoroutine());
     }
 
     // -------------------------------------------------------------------------
-    // Core logic
+    // Core visibility logic
     // -------------------------------------------------------------------------
 
+    // Enables workstations 1..N (where N = connected user count) and hides the rest.
+    // On the local player's own workstation, also shows/hides the virtual whiteboards
+    // that mirror the other players' boards.
     private void RefreshVisibility()
     {
         if (roomClient == null) return;
 
+        // +1 because Peers does not include the local client.
         int activeCount = Mathf.Clamp(roomClient.Peers.Count() + 1, 1, 4);
 
-        // Salta se nulla è cambiato (localPlayerNumber == 0 forza sempre il refresh)
+        // Skip redundant updates; localPlayerNumber == 0 always forces a refresh.
         if (localPlayerNumber != 0 &&
             activeCount       == lastActiveCount &&
             localPlayerNumber == lastLocalPlayerNumber)
@@ -164,8 +169,9 @@ public class WorkstationManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Mostra i Virtual_Whiteboard_j solo sulla workstation del giocatore locale.
-    /// Sulle altre workstation i virtual monitor vengono nascosti.
+    /// On the local player's workstation, enables the Virtual_Whiteboard_j objects
+    /// for every other active player j, so they act as mirrors of remote boards.
+    /// On workstations that do not belong to the local player, all virtual monitors are hidden.
     /// </summary>
     private void UpdateVirtualWhiteboards(GameObject workstation,
                                           int ownWorkstationNumber,
@@ -179,6 +185,8 @@ public class WorkstationManager : MonoBehaviour
             if (j == ownWorkstationNumber) continue;
 
             string    vwName      = $"Virtual_Whiteboard_{j}";
+
+            // First try a direct child lookup, then fall back to a deep recursive search.
             Transform vwTransform = workstation.transform.Find(vwName)
                                  ?? FindDeepChild(workstation.transform, vwName);
 
@@ -195,6 +203,7 @@ public class WorkstationManager : MonoBehaviour
         }
     }
 
+    // Recursively searches a transform hierarchy for a child with a specific name.
     private Transform FindDeepChild(Transform parent, string childName)
     {
         foreach (Transform child in parent)
@@ -207,7 +216,7 @@ public class WorkstationManager : MonoBehaviour
     }
 
     // -------------------------------------------------------------------------
-    // Editor utility (solo Play Mode)
+    // Editor utility — only compiled in the Unity Editor, not in builds
     // -------------------------------------------------------------------------
 
 #if UNITY_EDITOR
@@ -219,6 +228,7 @@ public class WorkstationManager : MonoBehaviour
     [ContextMenu("Debug: Simula 3 utenti")] private void DebugSim3() => SimulateCount(3);
     [ContextMenu("Debug: Simula 4 utenti")] private void DebugSim4() => SimulateCount(4);
 
+    // Forces a specific user count in Play Mode without needing real network peers.
     private void SimulateCount(int count)
     {
         lastActiveCount       = -1;

@@ -12,11 +12,13 @@ public class WhiteboardMarker : MonoBehaviour
     [SerializeField] private float _drawDistance = 0.005f;
 
     // -------------------------------------------------------
-    // Networking
+    // Networking — only the owner (the player holding the marker)
+    // sends position updates; all other clients just receive them.
     // -------------------------------------------------------
     private NetworkContext context;
     private bool _isOwner = false;
 
+    // Lightweight struct sent every frame to synchronise marker position/rotation.
     private struct MarkerMessage
     {
         public Vector3 position;
@@ -24,17 +26,17 @@ public class WhiteboardMarker : MonoBehaviour
     }
 
     // -------------------------------------------------------
-    // Drawing
+    // Drawing state
     // -------------------------------------------------------
     private Renderer _renderer;
     private Color _currentColor;
-    private Color[] _colors;
+    private Color[] _colors;      // pre-built pen-size² array reused each stroke segment
 
     private RaycastHit _touch;
     private Whiteboard _whiteboard;
     private Vector2 _touchPos;
 
-    // Coordinate texture dell'ultimo punto disegnato (già clampate)
+    // Texture coordinates of the last drawn point, used for stroke interpolation.
     private int _lastTexX, _lastTexY;
     private bool _touchedLastFrame;
 
@@ -44,6 +46,7 @@ public class WhiteboardMarker : MonoBehaviour
 
     void Awake()
     {
+        // Subscribe to XR grab events to track ownership (who is holding the marker).
         var grab = GetComponent<UnityEngine.XR.Interaction.Toolkit.Interactables.XRGrabInteractable>();
         grab.selectEntered.AddListener(OnGrab);
         grab.selectExited.AddListener(OnRelease);
@@ -72,6 +75,8 @@ public class WhiteboardMarker : MonoBehaviour
         grab.selectExited.RemoveListener(OnRelease);
     }
 
+    // Each frame the owner draws locally and broadcasts its transform.
+    // Non-owners skip this entirely — their marker is moved by ProcessMessage.
     void Update()
     {
         if (!_isOwner) return;
@@ -86,14 +91,14 @@ public class WhiteboardMarker : MonoBehaviour
     }
 
     // -------------------------------------------------------
-    // Grab events
+    // Grab / release events
     // -------------------------------------------------------
 
     private void OnGrab(SelectEnterEventArgs args)
     {
         SetOwner(true);
 
-        // Se non è assegnato manualmente, cerca il canvas più vicino
+        // Auto-discover the nearest ColorPickerUI if none was set in the Inspector.
         if (_colorPickerUI == null)
             _colorPickerUI = FindNearestColorPicker();
 
@@ -108,6 +113,7 @@ public class WhiteboardMarker : MonoBehaviour
         _colorPickerUI?.UnregisterMarker();
     }
 
+    // Finds the closest ColorPickerUI in the scene by Euclidean distance.
     private ColorPickerUI FindNearestColorPicker()
     {
         ColorPickerUI[] all = FindObjectsByType<ColorPickerUI>(FindObjectsSortMode.None);
@@ -123,7 +129,7 @@ public class WhiteboardMarker : MonoBehaviour
     }
 
     // -------------------------------------------------------
-    // API pubblica
+    // Public API
     // -------------------------------------------------------
 
     public void SetOwner(bool owner)
@@ -131,6 +137,7 @@ public class WhiteboardMarker : MonoBehaviour
         _isOwner = owner;
     }
 
+    // Called by ColorPickerUI when the user picks a new color.
     public void SetColor(Color color)
     {
         _currentColor = color;
@@ -141,9 +148,11 @@ public class WhiteboardMarker : MonoBehaviour
     public Color GetColor() => _currentColor;
 
     // -------------------------------------------------------
-    // Ricezione messaggi dalla rete
+    // Network message reception (non-owner side)
     // -------------------------------------------------------
 
+    // Non-owner clients receive the marker's transform and update it directly,
+    // so remote players can see the marker moving in real time.
     public void ProcessMessage(ReferenceCountedSceneGraphMessage message)
     {
         if (_isOwner) return;
@@ -154,7 +163,7 @@ public class WhiteboardMarker : MonoBehaviour
     }
 
     // -------------------------------------------------------
-    // Drawing logic (solo owner)
+    // Drawing logic — only executed by the owner
     // -------------------------------------------------------
 
     private void Draw()
@@ -163,6 +172,7 @@ public class WhiteboardMarker : MonoBehaviour
 
         Debug.DrawRay(_tip.position, _tip.up * 0.2f, Color.red);
 
+        // Raycast forward from the tip; if it hits a Whiteboard surface, draw on it.
         if (Physics.Raycast(_tip.position, _tip.up, out _touch, _drawDistance))
         {
             if (_touch.transform.CompareTag("Whiteboard"))
@@ -172,16 +182,17 @@ public class WhiteboardMarker : MonoBehaviour
 
                 _touchPos = new Vector2(_touch.textureCoord.x, _touch.textureCoord.y);
 
+                // Convert UV hit coordinates to pixel coordinates on the texture.
                 int x = (int)(_touchPos.x * _whiteboard.textureSize.x - (_penSize / 2));
                 int y = (int)(_touchPos.y * _whiteboard.textureSize.y - (_penSize / 2));
 
-                // Clamp per evitare out-of-bounds
                 x = Mathf.Clamp(x, 0, (int)_whiteboard.textureSize.x - _penSize);
                 y = Mathf.Clamp(y, 0, (int)_whiteboard.textureSize.y - _penSize);
 
                 if (_touchedLastFrame)
                 {
-                    // --- Disegno locale con lerp ---
+                    // Interpolate between the last and current pixel position to fill
+                    // gaps caused by fast movement (same lerp logic replicated on remote clients).
                     for (float f = 0f; f <= 1.00f; f += 0.01f)
                     {
                         int lerpX = Mathf.Clamp((int)Mathf.Lerp(_lastTexX, x, f),
@@ -193,12 +204,12 @@ public class WhiteboardMarker : MonoBehaviour
                     _whiteboard.texture.Apply();
                     _whiteboard.UpdateRenderTexture();
 
-                    // --- Invio rete: lastX/lastY sono le stesse coordinate già clampate ---
+                    // Send the segment to remote peers (hasLast=true triggers lerp on their side too).
                     _whiteboard.SendDraw(x, y, _lastTexX, _lastTexY, true, _penSize, _currentColor);
                 }
                 else
                 {
-                    // Primo punto del tratto: disegna subito anche localmente
+                    // First contact point of a new stroke — draw a single square immediately.
                     _whiteboard.texture.SetPixels(x, y, _penSize, _penSize, _colors);
                     _whiteboard.texture.Apply();
                     _whiteboard.UpdateRenderTexture();
@@ -213,11 +224,13 @@ public class WhiteboardMarker : MonoBehaviour
             }
         }
 
-        // Non sta toccando la whiteboard
+        // Marker lifted off the board — reset stroke continuity.
         _whiteboard       = null;
         _touchedLastFrame = false;
     }
 
+    // Pre-builds a flat Color array of pen-size identical colors so SetPixels
+    // can be called without allocating a new array on every draw call.
     private void RebuildColorArray()
     {
         _colors = Enumerable.Repeat(_currentColor, _penSize * _penSize).ToArray();

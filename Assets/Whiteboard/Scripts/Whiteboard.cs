@@ -17,13 +17,16 @@ public class Whiteboard : MonoBehaviour
     public RenderTexture mirrorRenderTexture;
 
     // -------------------------------------------------------
-    // Tipi di messaggio
-    // Tipo 0 (WhiteboardMessage, isClear=false): pennellata
-    // Tipo 1 (WhiteboardMessage, isClear=true):  reset lavagna
-    // Tipo 2 (SnapshotChunkMessage):             chunk snapshot
-    // Tipo 3 (SnapshotRequestMessage):           richiesta snapshot
+    // Message type discriminators used in ProcessMessage to route
+    // incoming network messages to the correct handler:
+    //   Type 0 (WhiteboardMessage, isClear=false): stroke pixel data
+    //   Type 1 (WhiteboardMessage, isClear=true):  full whiteboard reset
+    //   Type 2 (SnapshotChunkMessage):             one chunk of a snapshot
+    //   Type 3 (SnapshotRequestMessage):           request for a snapshot
     // -------------------------------------------------------
 
+    // Serializable structs used with Ubiq's SendJson / FromJson for network messages.
+    // Kept as structs (value types) to minimize GC allocations.
     private struct WhiteboardMessage
     {
         public bool isClear;
@@ -39,6 +42,8 @@ public class Whiteboard : MonoBehaviour
         public bool isRequest;
     }
 
+    // Snapshots are too large to send in one message, so they are split
+    // into fixed-size base64 chunks and reassembled on the receiver side.
     private struct SnapshotChunkMessage
     {
         public int chunkIndex;
@@ -47,29 +52,33 @@ public class Whiteboard : MonoBehaviour
     }
 
     // -------------------------------------------------------
-    // Stato interno
+    // Internal state
     // -------------------------------------------------------
 
     private NetworkContext context;
     private Renderer _renderer;
     private RoomClient _roomClient;
 
+    // Incoming draw messages are queued and processed in Update()
+    // to ensure all texture writes happen on the main thread.
     private List<WhiteboardMessage> _networkQueue = new List<WhiteboardMessage>();
 
-    // Pool di Color[] riusabile per evitare allocazioni continue nel loop
+    // Reusable Color[] buffer to avoid per-stroke heap allocations inside the draw loop.
     private Color[] _drawColorBuffer;
     private int     _drawColorBufferSize = 0;
 
-    // Ricostruzione snapshot in ingresso
+    // State for reassembling a multi-chunk snapshot received from the network.
     private string[] _incomingChunks;
     private int      _incomingTotal    = 0;
     private int      _incomingReceived = 0;
 
+    // Cooldowns prevent snapshot spam when many peers join at once.
     private float _lastSnapshotSentTime    = -999f;
     private float _lastSnapshotRequestTime = -999f;
     private const float SNAPSHOT_SEND_COOLDOWN    = 2f;
     private const float SNAPSHOT_REQUEST_COOLDOWN = 5f;
 
+    // Maximum bytes per chunk (base64 string length); keeps individual messages under Ubiq limits.
     private const int CHUNK_BYTES = 24000;
 
     // -------------------------------------------------------
@@ -80,6 +89,7 @@ public class Whiteboard : MonoBehaviour
     {
         _renderer = GetComponent<Renderer>();
 
+        // Create the writable Texture2D that serves as the drawing canvas.
         texture = new Texture2D(
             (int)textureSize.x,
             (int)textureSize.y,
@@ -91,8 +101,10 @@ public class Whiteboard : MonoBehaviour
         _renderer.material.mainTexture = texture;
         UpdateRenderTexture();
 
+        // Register with Ubiq's NetworkScene to start sending/receiving messages.
         context = NetworkScene.Register(this);
 
+        // Subscribe to room events to handle snapshot sync when peers join.
         _roomClient = RoomClient.Find(this);
         if (_roomClient != null)
         {
@@ -112,6 +124,8 @@ public class Whiteboard : MonoBehaviour
         _roomClient.OnJoinedRoom.RemoveListener(OnJoinedRoom);
     }
 
+    // Drain the network queue every frame. All texture mutations are batched
+    // here so that texture.Apply() is called at most once per frame.
     void Update()
     {
         if (_networkQueue.Count == 0) return;
@@ -129,7 +143,7 @@ public class Whiteboard : MonoBehaviour
 
             var col = new Color(msg.r, msg.g, msg.b, msg.a);
 
-            // Riusa il buffer di colori se la dimensione è la stessa, altrimenti riallocalo
+            // Resize the reusable buffer only when pen size changes.
             int needed = msg.penSize * msg.penSize;
             if (_drawColorBuffer == null || _drawColorBufferSize != needed)
             {
@@ -140,7 +154,8 @@ public class Whiteboard : MonoBehaviour
 
             if (msg.hasLast)
             {
-                // Lerp dal punto precedente a quello corrente (stessa logica del marker locale)
+                // Interpolate between the previous and current texture positions
+                // to produce a smooth stroke, mirroring the local drawing logic.
                 for (float f = 0f; f <= 1.00f; f += 0.01f)
                 {
                     int lerpX = Mathf.Clamp((int)Mathf.Lerp(msg.lastX, msg.x, f),
@@ -152,7 +167,7 @@ public class Whiteboard : MonoBehaviour
             }
             else
             {
-                // Primo punto del tratto
+                // First point of a new stroke — no interpolation needed.
                 int cx = Mathf.Clamp(msg.x, 0, (int)textureSize.x - msg.penSize);
                 int cy = Mathf.Clamp(msg.y, 0, (int)textureSize.y - msg.penSize);
                 texture.SetPixels(cx, cy, msg.penSize, msg.penSize, _drawColorBuffer);
@@ -174,6 +189,8 @@ public class Whiteboard : MonoBehaviour
     // Ubiq Room events
     // -------------------------------------------------------
 
+    // When a new peer joins, the client with the lexicographically highest UUID
+    // acts as "master" and sends the current snapshot so the newcomer is in sync.
     private void OnPeerAdded(IPeer newPeer)
     {
         if (_roomClient == null) return;
@@ -204,6 +221,8 @@ public class Whiteboard : MonoBehaviour
         StartCoroutine(SendSnapshotAfterDelay(0.5f));
     }
 
+    // When this client joins a room it requests a snapshot from whoever
+    // already has content on the board.
     private void OnJoinedRoom(IRoom room)
     {
         if (!gameObject.activeInHierarchy || !enabled) return;
@@ -232,9 +251,11 @@ public class Whiteboard : MonoBehaviour
     }
 
     // -------------------------------------------------------
-    // API pubblica per WhiteboardMarker
+    // Public API called by WhiteboardMarker
     // -------------------------------------------------------
 
+    // Broadcasts a single stroke segment to all peers.
+    // hasLast=true means the segment is interpolated from (lastX,lastY) to (x,y).
     public void SendDraw(int x, int y, int lastX, int lastY,
                          bool hasLast, int penSize, Color color)
     {
@@ -249,6 +270,7 @@ public class Whiteboard : MonoBehaviour
         });
     }
 
+    // Clears the board locally and broadcasts the clear command to all peers.
     public void NetworkedClear()
     {
         FillWhite();
@@ -258,14 +280,14 @@ public class Whiteboard : MonoBehaviour
     }
 
     // -------------------------------------------------------
-    // Ricezione messaggi Ubiq
+    // Ubiq message reception — routes by inspecting the raw JSON string
     // -------------------------------------------------------
 
     public void ProcessMessage(ReferenceCountedSceneGraphMessage message)
     {
         var raw = message.ToString();
 
-        // SnapshotRequestMessage
+        // Distinguish message types by checking for a unique field name in the JSON.
         if (raw.Contains("\"isRequest\""))
         {
             var req = message.FromJson<SnapshotRequestMessage>();
@@ -286,7 +308,6 @@ public class Whiteboard : MonoBehaviour
             return;
         }
 
-        // SnapshotChunkMessage
         if (raw.Contains("\"chunkIndex\""))
         {
             var chunk = message.FromJson<SnapshotChunkMessage>();
@@ -294,15 +315,17 @@ public class Whiteboard : MonoBehaviour
             return;
         }
 
-        // WhiteboardMessage (pennellata o clear)
+        // Default: stroke or clear message — enqueue for processing in Update().
         var msg = message.FromJson<WhiteboardMessage>();
         _networkQueue.Add(msg);
     }
 
     // -------------------------------------------------------
-    // Snapshot: invio
+    // Snapshot: sending
     // -------------------------------------------------------
 
+    // Encodes the current texture as JPEG, converts to base64, and sends it
+    // in fixed-size string chunks to stay within Ubiq message size limits.
     private void SendSnapshot()
     {
         byte[] jpgBytes = texture.EncodeToJPG(85);
@@ -327,11 +350,14 @@ public class Whiteboard : MonoBehaviour
     }
 
     // -------------------------------------------------------
-    // Snapshot: ricezione e ricostruzione
+    // Snapshot: receiving and reassembly
     // -------------------------------------------------------
 
+    // Accumulates incoming chunks in order. When all chunks are received,
+    // concatenates the base64 strings and applies the full snapshot.
     private void HandleSnapshotChunk(SnapshotChunkMessage chunk)
     {
+        // Reset the receive buffer if this is the start of a new snapshot transfer.
         if (chunk.chunkIndex == 0 || _incomingChunks == null ||
             _incomingTotal != chunk.totalChunks)
         {
@@ -357,6 +383,7 @@ public class Whiteboard : MonoBehaviour
         }
     }
 
+    // Decodes the reassembled base64 JPEG and loads it directly into the texture.
     private void ApplySnapshot(string base64)
     {
         try
@@ -377,6 +404,7 @@ public class Whiteboard : MonoBehaviour
     // Helpers
     // -------------------------------------------------------
 
+    // Fills the entire texture with white pixels (board reset).
     private void FillWhite()
     {
         var colors = new Color[(int)(textureSize.x * textureSize.y)];
@@ -384,12 +412,15 @@ public class Whiteboard : MonoBehaviour
         texture.SetPixels(colors);
     }
 
+    // Blits the CPU-side Texture2D onto the RenderTexture used by mirror displays.
     public void UpdateRenderTexture()
     {
         if (mirrorRenderTexture == null) return;
         Graphics.Blit(texture, mirrorRenderTexture);
     }
 
+    // Samples a sparse 16x16 grid of pixels to quickly decide whether the board
+    // is still blank without scanning every pixel.
     private bool IsTextureBlank()
     {
         int w = (int)textureSize.x;
