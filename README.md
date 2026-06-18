@@ -19,11 +19,6 @@ This project presents **Virtual Office**, a Social Virtual Reality application d
 The project is designed for **Meta Quest 3** headsets and controllers. Key technical features include a multi-chunk snapshot synchronization protocol for late-joining users, a peer-property-based workstation assignment mechanism that mitigates race conditions through a timed synchronization window, and a visibility management system that dynamically activates only occupied workstations.  
 **Testing** with up to four simultaneous users, complemented by a structured evaluation via **SUS** and **SUS Presence Scale**, validated the system's functionality and demonstrated an engaging collaborative experience. Compared to commercial platforms such as Meta Horizon Workrooms, Virtual Office is intentionally **simpler and fully open-source**, making it a valuable educational prototype and a foundation for future research on immersive collaborative workspaces.
 
-## Group Contribution Statement
-The project was developed by two people working in parallel on a single shared Unity scene. Both team members contributed to all aspects of the project throughout its development. Specific contributions:
-- Nicola Cappellaro: lighting setup and ColorPicker UI implementation  
-- Riccardo Zannoni: office design and workstation positioning  
-
 ## Setup
 First of all, install the required software:
 - Install [Unity Hub](https://unity.com/download)  
@@ -33,10 +28,34 @@ First of all, install the required software:
   - Platforms: Android Build Support (select OpenJDK, Android SDK & NDK Tools)
   - Documentation
 - Download the project: `git clone https://github.com/NicoNRG2/VirtualOffice.git`
+- Open the project and the scene inside Samples/Ubiq/1.0.0-pre.16/Demo (XRI)/Demo
 
+## Create a local server
+To run the application, a local Ubiq server must be started. The server is responsible for managing room creation, user connections, and network synchronization between the different VR clients.
+
+First, install **Node.js** on your system. Then clone the Ubiq repository:
+
+```bash
+git clone https://github.com/UCL-VR/ubiq.git
+```
+
+Navigate to the Node server directory:
+```bash
+cd ubiq/Node
+```
+
+Install the required dependencies:
+```bash
+npm install
+```
+Finally, start the local server:
+```bash
+npm start
+```
+Once the server is running, users can connect to it from the Virtual Office application by entering the corresponding room code.
 
 ## Meta Quest 3 APK
-A pre-built APK for Meta Quest 3 is available directly in the repository.  
+A pre-built APK for Meta Quest 3 is available in the Releases section of the repository.  
 Users who want to run the application without building the Unity project can install the APK using **SideQuest**.
 
 To install the application:
@@ -55,7 +74,9 @@ The APK version is already configured for the Meta Quest 3 and includes all requ
 **Drawing:** a virtual pen is located beside the whiteboard. The user grabs it by pressing the grip trigger on their Quest 3 controller (VR mode) or the right mouse button (flat-screen mode). Once held, moving the pen tip towards the whiteboard surface causes the nib to draw on the whiteboard.  
 **Changing color:** a button beside the workstation allows the users to open a floating color picker panel. The panel exposes three sliders (Hue, Saturation, Value) and an optional hex code input field. A color preview swatch shows the current color in real time. An Eraser button sets the color to white. The UI synchronizes automatically with the color of the pen currently in the user's hand.  
 **Viewing other participants:** the virtual monitors above each user's whiteboard display the whiteboards of the other connected participants as live Render Textures. They are read-only: users can only draw on their own whiteboard.
-Late Join: when a new user joins a room where other participants have already drawn on their whiteboards, the new peer automatically sees all drawings that were created before they entered the room.  
+Late Join: when a new user joins a room where other participants have already drawn on their whiteboards, the new peer automatically sees all drawings that were created before they entered the room.
 
-
-
+## Group Contribution Statement
+The project was developed by two people working in parallel on a single shared Unity scene. Both team members contributed to all aspects of the project throughout its development. Specific contributions:
+- Nicola Cappellaro: lighting setup and ColorPicker UI implementation  
+- Riccardo Zannoni: office design and workstation positioning  
