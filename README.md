@@ -5,13 +5,19 @@
 <b>Course of Immersive Technologies: Final Project</b><br><br>
 </center>   
 
-![Copertina](/Assets/Images/imm_off.png)
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=jxkgkF2lt6o">
+    <img src="docs/cover.png"
+         alt="Motion Matching Unreal Engine Demo"
+         style="width:90%; max-width:90%;" />
+  </a>
+</p>
 
 ## Project description
 Remote work and distributed team collaboration have become increasingly common. Existing tools such as Zoom, Google Meet, and Microsoft Teams have **limitations when multiple participants need to share and compare visual content simultaneously:** traditional screen sharing is sequential, allowing only one presenter at a time and creating friction during collaborative tasks.  
 This project presents **Virtual Office**, a Social Virtual Reality application developed in Unity 6 using the Ubiq networking framework. The system recreates an office environment where up to four remote users can collaborate in real time. Each participant is assigned a personal workstation equipped with a virtual whiteboard, a drawable 2D canvas, and virtual monitors displaying the whiteboards of all other users through Render Textures. **This enables continuous awareness of collaborators’ work without requiring screen-sharing handoffs.**  
 The project is designed for **Meta Quest 3** headsets and controllers. Key technical features include a multi-chunk snapshot synchronization protocol for late-joining users, a peer-property-based workstation assignment mechanism that mitigates race conditions through a timed synchronization window, and a visibility management system that dynamically activates only occupied workstations.  
-**Informal testing** with up to four simultaneous users validated the system’s functionality and demonstrated an engaging collaborative experience. Compared to commercial platforms such as Meta Horizon Workrooms, Virtual Office is intentionally **simpler and fully open-source**, making it a valuable educational prototype and a foundation for future research on immersive collaborative workspaces.
+**Testing** with up to four simultaneous users, complemented by a structured evaluation via **SUS** and **SUS Presence Scale**, validated the system's functionality and demonstrated an engaging collaborative experience. Compared to commercial platforms such as Meta Horizon Workrooms, Virtual Office is intentionally **simpler and fully open-source**, making it a valuable educational prototype and a foundation for future research on immersive collaborative workspaces.
 
 ## Group Contribution Statement
 The project was developed by two people working in parallel on a single shared Unity scene. Both team members contributed to all aspects of the project throughout its development. Specific contributions:
@@ -26,6 +32,22 @@ First of all, install the required software:
   - Dev tools: Microsoft Visual Studio Community 2022
   - Platforms: Android Build Support (select OpenJDK, Android SDK & NDK Tools)
   - Documentation
+- Download the project: `git clone https://github.com/NicoNRG2/VirtualOffice.git`
+
+
+## Meta Quest 3 APK
+A pre-built APK for Meta Quest 3 is available directly in the repository.  
+Users who want to run the application without building the Unity project can install the APK using **SideQuest**.
+
+To install the application:
+1. Install [SideQuest](https://sidequestvr.com/) and connect the Meta Quest 3 headset via USB.
+2. Enable developer mode on the headset.
+3. Open SideQuest and select **Install APK from folder**.
+4. Choose the provided `VirtualOffice.apk` file located in the repository.
+5. Launch the application from the Quest 3 library.
+
+The APK version is already configured for the Meta Quest 3 and includes all required dependencies.
+
 
 ## Usage istruction
 <u>This section describes the user experience from first launch to active collaboration:</u>  
