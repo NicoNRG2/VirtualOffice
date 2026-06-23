@@ -66,6 +66,7 @@ To install the application:
 5. Launch the application from the Quest 3 library.
 
 The APK version is already configured for the Meta Quest 3 and includes all required dependencies.
+**Note:** The APK uses the localhost IP address for the server connection. To change this, go to the Ubiq Network Scene Demo in the hierarchy and modify the connection settings/definition.
 
 
 ## Usage istruction
